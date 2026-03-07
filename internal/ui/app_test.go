@@ -69,7 +69,7 @@ func testApp(prs []gh.PR) (App, *mockClient) {
 	app.width = 120
 	app.height = 40
 	app.prs = prs
-	app.prsByNumber = indexPRs(prs)
+	app.prsByKey = indexPRs(prs)
 	app.loading = false
 	app = app.rebuildTable(0)
 	return app, mc
@@ -115,18 +115,20 @@ func TestApp_PRsMsg(t *testing.T) {
 
 func TestApp_PRStatusesMsg(t *testing.T) {
 	app, _ := testApp(testPRs)
+	key1 := gh.PRKey{Num: 1, Repo: "org/repo1"}
+	key2 := gh.PRKey{Num: 2, Repo: "org/repo2"}
 	msg := gh.PRStatusesMsg{
-		Checks:     map[int]string{1: "success", 2: "failure"},
-		Reviews:    map[int]gh.ReviewSummary{1: {Approvals: 1}},
-		MergeState: map[int]string{1: "CLEAN", 2: "BEHIND"},
+		Checks:     map[gh.PRKey]string{key1: "success", key2: "failure"},
+		Reviews:    map[gh.PRKey]gh.ReviewSummary{key1: {Approvals: 1}},
+		MergeState: map[gh.PRKey]string{key1: "CLEAN", key2: "BEHIND"},
 	}
 	model, _ := app.Update(msg)
 	updated := model.(App)
-	if updated.checkStatus[1] != "success" {
-		t.Errorf("check status for PR 1 = %q, want %q", updated.checkStatus[1], "success")
+	if updated.checkStatus[key1] != "success" {
+		t.Errorf("check status for PR 1 = %q, want %q", updated.checkStatus[key1], "success")
 	}
-	if updated.mergeState[2] != "BEHIND" {
-		t.Errorf("merge state for PR 2 = %q, want %q", updated.mergeState[2], "BEHIND")
+	if updated.mergeState[key2] != "BEHIND" {
+		t.Errorf("merge state for PR 2 = %q, want %q", updated.mergeState[key2], "BEHIND")
 	}
 }
 
@@ -360,7 +362,7 @@ func TestApp_MergeFlow(t *testing.T) {
 
 func TestApp_MergeBlockedByBehind(t *testing.T) {
 	app, _ := testApp(testPRs)
-	app.mergeState = map[int]string{1: "BEHIND"}
+	app.mergeState = map[gh.PRKey]string{{Num: 1, Repo: "org/repo1"}: "BEHIND"}
 
 	model, _ := app.Update(tea.KeyPressMsg{Code: 'm', Text: "m"})
 	updated := model.(App)
@@ -374,7 +376,7 @@ func TestApp_MergeBlockedByBehind(t *testing.T) {
 
 func TestApp_MergeBlockedByDirty(t *testing.T) {
 	app, _ := testApp(testPRs)
-	app.mergeState = map[int]string{1: "DIRTY"}
+	app.mergeState = map[gh.PRKey]string{{Num: 1, Repo: "org/repo1"}: "DIRTY"}
 
 	model, _ := app.Update(tea.KeyPressMsg{Code: 'm', Text: "m"})
 	updated := model.(App)
@@ -394,7 +396,7 @@ func TestApp_MergeMsg_RemovesPR(t *testing.T) {
 
 func TestApp_UpdateBranch(t *testing.T) {
 	app, mc := testApp(testPRs)
-	app.mergeState = map[int]string{1: "BEHIND"}
+	app.mergeState = map[gh.PRKey]string{{Num: 1, Repo: "org/repo1"}: "BEHIND"}
 
 	model, _ := app.Update(tea.KeyPressMsg{Code: 'u', Text: "u"})
 	updated := model.(App)
@@ -415,7 +417,7 @@ func TestApp_UpdateBranch(t *testing.T) {
 
 func TestApp_UpdateBranch_NotBehind(t *testing.T) {
 	app, _ := testApp(testPRs)
-	app.mergeState = map[int]string{1: "CLEAN"}
+	app.mergeState = map[gh.PRKey]string{{Num: 1, Repo: "org/repo1"}: "CLEAN"}
 
 	model, _ := app.Update(tea.KeyPressMsg{Code: 'u', Text: "u"})
 	updated := model.(App)
@@ -519,7 +521,7 @@ func TestApp_WindowSizeMsg(t *testing.T) {
 
 func TestApp_EscClearsSelection(t *testing.T) {
 	app, _ := testApp(testPRs)
-	app.selected = map[prKey]bool{{Num: 1, Repo: "org/repo1"}: true}
+	app.selected = map[gh.PRKey]bool{{Num: 1, Repo: "org/repo1"}: true}
 
 	model, _ := app.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
 	updated := model.(App)
@@ -554,7 +556,7 @@ func TestApp_RemovePR(t *testing.T) {
 
 func TestApp_BulkApprove(t *testing.T) {
 	app, mc := testApp(testPRs)
-	app.selected = map[prKey]bool{
+	app.selected = map[gh.PRKey]bool{
 		{Num: 1, Repo: "org/repo1"}: true,
 		{Num: 2, Repo: "org/repo2"}: true,
 	}

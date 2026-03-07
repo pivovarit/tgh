@@ -24,13 +24,8 @@ const (
 		chromeHelpNewline + chromeHelpMargin + chromeHelp
 )
 
-type prKey struct {
-	Num  int
-	Repo string
-}
-
-func keyFor(pr gh.PR) prKey {
-	return prKey{Num: pr.Number, Repo: pr.Repository.NameWithOwner}
+func keyFor(pr gh.PR) gh.PRKey {
+	return gh.PRKey{Num: pr.Number, Repo: pr.Repository.NameWithOwner}
 }
 
 type Operation int
@@ -63,7 +58,7 @@ type App struct {
 	filtering   bool
 	filterQuery string
 
-	selected     map[prKey]bool
+	selected     map[gh.PRKey]bool
 	bulkPending  int
 	bulkTotal    int
 	bulkFailed   int
@@ -79,10 +74,10 @@ type App struct {
 	viewportStart int
 
 	detail       detailState
-	prsByNumber  map[int]gh.PR
-	checkStatus  map[int]string
-	reviewStatus map[int]gh.ReviewSummary
-	mergeState   map[int]string
+	prsByKey     map[gh.PRKey]gh.PR
+	checkStatus  map[gh.PRKey]string
+	reviewStatus map[gh.PRKey]gh.ReviewSummary
+	mergeState   map[gh.PRKey]string
 	widths       colWidths
 }
 
@@ -98,9 +93,9 @@ func newWithClient(c gh.Client, owners []string) App {
 		loading:      true,
 		table:        t,
 		widths:       w,
-		checkStatus:  map[int]string{},
-		reviewStatus: map[int]gh.ReviewSummary{},
-		mergeState:   map[int]string{},
+		checkStatus:  map[gh.PRKey]string{},
+		reviewStatus: map[gh.PRKey]gh.ReviewSummary{},
+		mergeState:   map[gh.PRKey]string{},
 	}
 }
 
@@ -148,10 +143,10 @@ func (m App) currentPR() *gh.PR {
 	return nil
 }
 
-func indexPRs(prs []gh.PR) map[int]gh.PR {
-	idx := make(map[int]gh.PR, len(prs))
+func indexPRs(prs []gh.PR) map[gh.PRKey]gh.PR {
+	idx := make(map[gh.PRKey]gh.PR, len(prs))
 	for _, pr := range prs {
-		idx[pr.Number] = pr
+		idx[keyFor(pr)] = pr
 	}
 	return idx
 }
@@ -177,7 +172,7 @@ func (m App) toggleSelect() App {
 	}
 	key := keyFor(filtered[cursor])
 	if m.selected == nil {
-		m.selected = make(map[prKey]bool)
+		m.selected = make(map[gh.PRKey]bool)
 	}
 	if m.selected[key] {
 		delete(m.selected, key)
@@ -202,7 +197,7 @@ func (m App) removePR(num int, repo string) App {
 		}
 	}
 	m.prs = kept
-	m.prsByNumber = indexPRs(m.prs)
+	m.prsByKey = indexPRs(m.prs)
 
 	filtered := m.filteredPRs()
 	m.table.SetRows(buildRows(filtered, m.checkStatus, m.reviewStatus, m.mergeState, m.selected, m.widths))
@@ -230,9 +225,7 @@ func (m App) rebuildTable(selectedNum int) App {
 
 	cursor := -1
 	if selectedNum > 0 {
-		if _, ok := m.prsByNumber[selectedNum]; ok {
-			cursor = slices.IndexFunc(filtered, func(pr gh.PR) bool { return pr.Number == selectedNum })
-		}
+		cursor = slices.IndexFunc(filtered, func(pr gh.PR) bool { return pr.Number == selectedNum })
 	}
 	if cursor < 0 && len(filtered) > 0 {
 		cursor = min(prevCursor, len(filtered)-1)

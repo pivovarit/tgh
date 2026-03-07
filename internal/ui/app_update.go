@@ -50,11 +50,11 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		slices.SortStableFunc(m.prs, func(a, b gh.PR) int {
 			return cmp.Compare(a.Repository.NameWithOwner, b.Repository.NameWithOwner)
 		})
-		m.prsByNumber = indexPRs(m.prs)
+		m.prsByKey = indexPRs(m.prs)
 		m.selected = nil
-		m.checkStatus = map[int]string{}
-		m.reviewStatus = map[int]gh.ReviewSummary{}
-		m.mergeState = map[int]string{}
+		m.checkStatus = map[gh.PRKey]string{}
+		m.reviewStatus = map[gh.PRKey]gh.ReviewSummary{}
+		m.mergeState = map[gh.PRKey]string{}
 		m.loading = false
 		m.err = nil
 		m = m.rebuildTable(selectedNum)
@@ -96,14 +96,15 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case gh.ApproveMsg:
+		key := gh.PRKey{Num: msg.Num, Repo: msg.Repo}
 		if m.bulkPending > 0 {
 			if msg.Err != nil {
 				m.bulkFailed++
-			} else if pr, ok := m.prsByNumber[msg.Num]; ok {
+			} else if pr, ok := m.prsByKey[key]; ok {
 				m.bulkApproved = append(m.bulkApproved, pr)
-				rev := m.reviewStatus[msg.Num]
+				rev := m.reviewStatus[key]
 				rev.Approvals++
-				m.reviewStatus[msg.Num] = rev
+				m.reviewStatus[key] = rev
 			}
 			m.bulkPending--
 			if m.bulkPending == 0 {
@@ -127,11 +128,11 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.warnMsg = fmt.Sprintf("Approved #%d", msg.Num)
-		rev := m.reviewStatus[msg.Num]
+		rev := m.reviewStatus[key]
 		rev.Approvals++
-		m.reviewStatus[msg.Num] = rev
+		m.reviewStatus[key] = rev
 		m = m.refreshTableRows()
-		if pr, ok := m.prsByNumber[msg.Num]; ok {
+		if pr, ok := m.prsByKey[key]; ok {
 			return m, m.client.FetchAllPRStatuses([]gh.PR{pr})
 		}
 		return m, nil
@@ -201,7 +202,7 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.warnMsg = fmt.Sprintf("Updated branch for #%d", msg.Num)
-		if pr, ok := m.prsByNumber[msg.Num]; ok {
+		if pr, ok := m.prsByKey[gh.PRKey{Num: msg.Num, Repo: msg.Repo}]; ok {
 			return m, m.client.FetchAllPRStatuses([]gh.PR{pr})
 		}
 		return m, nil

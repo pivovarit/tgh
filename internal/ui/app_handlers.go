@@ -67,7 +67,7 @@ func (m App) handleMainKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case keyMerge:
 		if sel := m.selectedPRs(); len(sel) > 0 {
 			for _, pr := range sel {
-				switch m.mergeState[pr.Number] {
+				switch m.mergeState[keyFor(pr)] {
 				case "BEHIND":
 					m.warnMsg = "cannot merge: some PRs are not up to date with the base branch"
 					return m, nil
@@ -81,7 +81,7 @@ func (m App) handleMainKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.confirmTitle = ""
 			m.confirmRepo = ""
 		} else if pr := m.currentPR(); pr != nil {
-			switch m.mergeState[pr.Number] {
+			switch m.mergeState[keyFor(*pr)] {
 			case "BEHIND":
 				m.warnMsg = "cannot merge: branch is not up to date with the base branch"
 				return m, nil
@@ -97,7 +97,7 @@ func (m App) handleMainKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case keyUpdate:
 		if pr := m.currentPR(); pr != nil {
-			if m.mergeState[pr.Number] != "BEHIND" {
+			if m.mergeState[keyFor(*pr)] != "BEHIND" {
 				m.warnMsg = "branch is already up to date with the base branch"
 				return m, nil
 			}

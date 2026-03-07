@@ -122,7 +122,7 @@ func TestBuildRows_WithSelection(t *testing.T) {
 		{Number: 1, Repository: gh.Repository{NameWithOwner: "o/r"}, Title: "PR 1", Author: gh.Author{Login: "user"}, CreatedAt: "2025-01-01T00:00:00Z"},
 	}
 	w := colWidths{repo: 10, title: 20, author: 10}
-	sel := map[prKey]bool{{Num: 1, Repo: "o/r"}: true}
+	sel := map[gh.PRKey]bool{{Num: 1, Repo: "o/r"}: true}
 	rows := buildRows(prs, nil, nil, nil, sel, w)
 	if rows[0][0] != "●" {
 		t.Errorf("selected row should have '●', got %q", rows[0][0])
