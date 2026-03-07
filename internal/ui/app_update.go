@@ -157,11 +157,7 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.op = OpNone
 		if msg.Err != nil {
-			if gh.IsArchivedError(msg.Err) {
-				m.warnMsg = "repository is archived - cannot close this PR"
-			} else {
-				m.err = msg.Err
-			}
+			m.err = msg.Err
 			return m, nil
 		}
 		m.warnMsg = fmt.Sprintf("Closed #%d", msg.Num)

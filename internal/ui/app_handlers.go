@@ -198,7 +198,7 @@ func (m App) handleFilterKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m App) handleConfirmKey(msg tea.KeyPressMsg, inProgressOp Operation, bulkCmdFn func(gh.PR) tea.Cmd, singleCmd tea.Cmd) (tea.Model, tea.Cmd) {
+func (m App) handleConfirmKey(msg tea.KeyPressMsg, inProgressOp Operation, bulkCmdFn func(gh.PR) tea.Cmd, singleCmdFn func() tea.Cmd) (tea.Model, tea.Cmd) {
 	switch msg.Code {
 	case 'y', 'Y':
 		m.op = inProgressOp
@@ -215,7 +215,7 @@ func (m App) handleConfirmKey(msg tea.KeyPressMsg, inProgressOp Operation, bulkC
 			}
 			return m, tea.Batch(cmds...)
 		}
-		return m, singleCmd
+		return m, singleCmdFn()
 	case 'n', 'N', tea.KeyEsc:
 		m.op = OpNone
 	}
@@ -225,27 +225,27 @@ func (m App) handleConfirmKey(msg tea.KeyPressMsg, inProgressOp Operation, bulkC
 func (m App) handleConfirmApproveKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m.handleConfirmKey(msg, OpApproving,
 		func(pr gh.PR) tea.Cmd { return m.client.ApprovePR(pr.Number, pr.Repository.NameWithOwner) },
-		m.client.ApprovePR(m.confirmNum, m.confirmRepo),
+		func() tea.Cmd { return m.client.ApprovePR(m.confirmNum, m.confirmRepo) },
 	)
 }
 
 func (m App) handleConfirmCloseKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m.handleConfirmKey(msg, OpClosing,
 		func(pr gh.PR) tea.Cmd { return m.client.ClosePR(pr.Number, pr.Repository.NameWithOwner) },
-		m.client.ClosePR(m.confirmNum, m.confirmRepo),
+		func() tea.Cmd { return m.client.ClosePR(m.confirmNum, m.confirmRepo) },
 	)
 }
 
 func (m App) handleConfirmMergeKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m.handleConfirmKey(msg, OpMerging,
 		func(pr gh.PR) tea.Cmd { return m.client.MergePR(pr.Number, pr.Repository.NameWithOwner, "squash") },
-		m.client.MergePR(m.confirmNum, m.confirmRepo, "squash"),
+		func() tea.Cmd { return m.client.MergePR(m.confirmNum, m.confirmRepo, "squash") },
 	)
 }
 
 func (m App) handleConfirmUpdateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m.handleConfirmKey(msg, OpUpdating, nil,
-		m.client.UpdateBranch(m.confirmNum, m.confirmRepo),
+		func() tea.Cmd { return m.client.UpdateBranch(m.confirmNum, m.confirmRepo) },
 	)
 }
 

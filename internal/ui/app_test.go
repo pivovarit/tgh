@@ -325,18 +325,6 @@ func TestApp_CloseMsg_RemovesPR(t *testing.T) {
 	}
 }
 
-func TestApp_CloseMsg_ArchivedError(t *testing.T) {
-	app, _ := testApp(testPRs)
-	model, _ := app.Update(gh.CloseMsg{Num: 1, Repo: "org/repo1", Err: errStr("repository is archived")})
-	updated := model.(App)
-	if updated.warnMsg == "" {
-		t.Error("should set warnMsg for archived error")
-	}
-	if updated.err != nil {
-		t.Error("should not set err for archived error")
-	}
-}
-
 func TestApp_MergeFlow(t *testing.T) {
 	app, mc := testApp(testPRs)
 

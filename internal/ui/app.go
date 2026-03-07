@@ -93,6 +93,7 @@ func newWithClient(c gh.Client, owners []string) App {
 		loading:      true,
 		table:        t,
 		widths:       w,
+		prsByKey:     map[gh.PRKey]gh.PR{},
 		checkStatus:  map[gh.PRKey]string{},
 		reviewStatus: map[gh.PRKey]gh.ReviewSummary{},
 		mergeState:   map[gh.PRKey]string{},

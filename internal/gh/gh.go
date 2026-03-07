@@ -495,14 +495,6 @@ func UpdateBranch(number int, repo string) tea.Cmd {
 	}
 }
 
-func IsArchivedError(err error) bool {
-	if err == nil {
-		return false
-	}
-	s := strings.ToLower(err.Error())
-	return strings.Contains(s, "archived so is read-only") || strings.Contains(s, "repository is archived")
-}
-
 func RelativeTime(isoTime string) string {
 	t, err := time.Parse(time.RFC3339, isoTime)
 	if err != nil {
