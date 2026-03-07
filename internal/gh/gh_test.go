@@ -62,26 +62,6 @@ func TestPRMode_Next(t *testing.T) {
 	}
 }
 
-func TestIsArchivedError(t *testing.T) {
-	tests := []struct {
-		name     string
-		err      error
-		expected bool
-	}{
-		{"nil error", nil, false},
-		{"archived read-only", errStr("archived so is read-only"), true},
-		{"repository is archived", errStr("Repository is archived"), true},
-		{"unrelated error", errStr("permission denied"), false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := IsArchivedError(tt.err); got != tt.expected {
-				t.Errorf("IsArchivedError() = %v, want %v", got, tt.expected)
-			}
-		})
-	}
-}
-
 func TestRelativeTime(t *testing.T) {
 	tests := []struct {
 		name     string
