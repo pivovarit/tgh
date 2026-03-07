@@ -122,9 +122,9 @@ func (m App) handleMainKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 				m = m.refreshTableRows()
 				return m, nil
 			} else if m.filterQuery != "" {
-				selectedNum := m.currentSelectedNumber()
+				selectedKey := m.currentSelectedKey()
 				m.filterQuery = ""
-				m = m.rebuildTable(selectedNum)
+				m = m.rebuildTable(selectedKey)
 			} else if m.err != nil {
 				m.err = nil
 			}
@@ -183,16 +183,16 @@ func (m App) handleFilterKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.filtering = false
 	case tea.KeyBackspace, tea.KeyDelete:
 		if len(m.filterQuery) > 0 {
-			selectedNum := m.currentSelectedNumber()
+			selectedKey := m.currentSelectedKey()
 			runes := []rune(m.filterQuery)
 			m.filterQuery = string(runes[:len(runes)-1])
-			m = m.rebuildTable(selectedNum)
+			m = m.rebuildTable(selectedKey)
 		}
 	default:
 		if len(msg.Text) > 0 {
-			selectedNum := m.currentSelectedNumber()
+			selectedKey := m.currentSelectedKey()
 			m.filterQuery += msg.Text
-			m = m.rebuildTable(selectedNum)
+			m = m.rebuildTable(selectedKey)
 		}
 	}
 	return m, nil
