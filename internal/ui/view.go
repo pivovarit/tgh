@@ -72,10 +72,12 @@ func (m App) View() tea.View {
 			}
 			if prIdx != cursor {
 				pr := filtered[prIdx]
-				switch pr.State {
-				case "merged":
+				switch {
+				case pr.IsDraft:
+					lines[i] = draftRowStyle.Render(line)
+				case pr.State == "merged":
 					lines[i] = mergedRowStyle.Render(line)
-				case "closed":
+				case pr.State == "closed":
 					lines[i] = closedRowStyle.Render(line)
 				}
 			}

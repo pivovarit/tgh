@@ -31,6 +31,7 @@ type PR struct {
 	Title      string     `json:"title"`
 	Author     Author     `json:"author"`
 	State      string     `json:"state"`
+	IsDraft    bool       `json:"isDraft"`
 	CreatedAt  string     `json:"createdAt"`
 	URL        string     `json:"url"`
 	Repository Repository `json:"repository"`
@@ -146,7 +147,7 @@ func FetchPRs(mode PRMode, owners []string) tea.Cmd {
 		args := []string{
 			"search", "prs",
 			"--state", "open",
-			"--json", "number,title,author,state,createdAt,url,repository",
+			"--json", "number,title,author,state,isDraft,createdAt,url,repository",
 			"--limit", "100",
 		}
 		switch mode {
