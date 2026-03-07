@@ -52,11 +52,12 @@ func computeColWidths(prs []gh.PR, width int) colWidths {
 	return colWidths{repoW, titleW, authorW}
 }
 
-func buildRows(prs []gh.PR, checkStatus map[int]string, reviewStatus map[int]gh.ReviewSummary, mergeState map[int]string, selected map[prKey]bool, w colWidths) []table.Row {
+func buildRows(prs []gh.PR, checkStatus map[gh.PRKey]string, reviewStatus map[gh.PRKey]gh.ReviewSummary, mergeState map[gh.PRKey]string, selected map[gh.PRKey]bool, w colWidths) []table.Row {
 	rows := make([]table.Row, len(prs))
 	for i, pr := range prs {
+		key := keyFor(pr)
 		sel := " "
-		if selected[keyFor(pr)] {
+		if selected[key] {
 			sel = "●"
 		}
 		rows[i] = table.Row{
@@ -65,13 +66,13 @@ func buildRows(prs []gh.PR, checkStatus map[int]string, reviewStatus map[int]gh.
 			trunc(prNum(pr.Number)+" "+pr.Title, w.title),
 			trunc(pr.Author.Login, w.author),
 			trunc(gh.RelativeTime(pr.CreatedAt), ageW),
-			statusSymbol(checkStatus[pr.Number], reviewStatus[pr.Number], mergeState[pr.Number]),
+			statusSymbol(checkStatus[key], reviewStatus[key], mergeState[key]),
 		}
 	}
 	return rows
 }
 
-func buildTable(prs []gh.PR, checkStatus map[int]string, reviewStatus map[int]gh.ReviewSummary, mergeState map[int]string, selected map[prKey]bool, width int) (table.Model, colWidths) {
+func buildTable(prs []gh.PR, checkStatus map[gh.PRKey]string, reviewStatus map[gh.PRKey]gh.ReviewSummary, mergeState map[gh.PRKey]string, selected map[gh.PRKey]bool, width int) (table.Model, colWidths) {
 	innerWidth := width - 2
 	w := computeColWidths(prs, innerWidth)
 

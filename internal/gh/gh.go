@@ -93,10 +93,14 @@ type (
 		PR  PRDetail
 		Err error
 	}
+	PRKey struct {
+		Num  int
+		Repo string
+	}
 	PRStatusesMsg struct {
-		Checks     map[int]string
-		Reviews    map[int]ReviewSummary
-		MergeState map[int]string
+		Checks     map[PRKey]string
+		Reviews    map[PRKey]ReviewSummary
+		MergeState map[PRKey]string
 	}
 	ErrMsg     struct{ Err error }
 	ApproveMsg struct {
@@ -230,10 +234,10 @@ func fetchReviewPRs(owners []string) tea.Msg {
 			prs = append(prs, pr)
 		}
 	}
-	return PRsMsg(filterByWriteAccess(ctx, prs))
+	return PRsMsg(filterByWriteAccess(prs))
 }
 
-func filterByWriteAccess(ctx context.Context, prs []PR) []PR {
+func filterByWriteAccess(prs []PR) []PR {
 	if len(prs) == 0 {
 		return prs
 	}
@@ -252,29 +256,32 @@ func filterByWriteAccess(ctx context.Context, prs []PR) []PR {
 		if len(parts) != 2 {
 			continue
 		}
-		fmt.Fprintf(&sb, "\n  repo%d: repository(owner: %q, name: %q) { viewerPermission }", i, parts[0], parts[1])
+		fmt.Fprintf(&sb, "\n  repo%d: repository(owner: %q, name: %q) { viewerPermission isArchived }", i, parts[0], parts[1])
 		repoIndex[i] = repo
 		i++
 	}
 	sb.WriteString("\n}")
 
-	out, err := exec.CommandContext(ctx, "gh", "api", "graphql", "-f", "query="+sb.String()).CombinedOutput()
-	if err != nil {
-		return prs
-	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeoutFetch)
+	defer cancel()
+	out, _ := exec.CommandContext(ctx, "gh", "api", "graphql", "-f", "query="+sb.String()).CombinedOutput()
 
 	var response struct {
 		Data map[string]struct {
 			ViewerPermission string `json:"viewerPermission"`
+			IsArchived       bool   `json:"isArchived"`
 		} `json:"data"`
 	}
-	if err := json.Unmarshal(out, &response); err != nil {
+	if err := json.Unmarshal(out, &response); err != nil || response.Data == nil {
 		return prs
 	}
 
 	writable := make(map[string]bool)
 	for idx, repo := range repoIndex {
 		if node, ok := response.Data[fmt.Sprintf("repo%d", idx)]; ok {
+			if node.IsArchived {
+				continue
+			}
 			switch node.ViewerPermission {
 			case "ADMIN", "WRITE", "MAINTAIN":
 				writable[repo] = true
@@ -393,15 +400,12 @@ func FetchAllPRStatuses(prs []PR) tea.Cmd {
 
 		ctx, cancel := context.WithTimeout(context.Background(), timeoutFetch)
 		defer cancel()
-		out, err := exec.CommandContext(ctx, "gh", "api", "graphql", "-f", "query="+sb.String()).CombinedOutput()
-		if err != nil {
-			return PRStatusesMsg{}
-		}
+		out, _ := exec.CommandContext(ctx, "gh", "api", "graphql", "-f", "query="+sb.String()).CombinedOutput()
 
 		var response struct {
 			Data map[string]json.RawMessage `json:"data"`
 		}
-		if err := json.Unmarshal(out, &response); err != nil {
+		if err := json.Unmarshal(out, &response); err != nil || response.Data == nil {
 			return PRStatusesMsg{}
 		}
 
@@ -426,9 +430,9 @@ func FetchAllPRStatuses(prs []PR) tea.Cmd {
 		}
 
 		result := PRStatusesMsg{
-			Checks:     make(map[int]string),
-			Reviews:    make(map[int]ReviewSummary),
-			MergeState: make(map[int]string),
+			Checks:     make(map[PRKey]string),
+			Reviews:    make(map[PRKey]ReviewSummary),
+			MergeState: make(map[PRKey]string),
 		}
 		for i, pr := range prs {
 			raw, ok := response.Data[fmt.Sprintf("pr%d", i)]
@@ -440,17 +444,19 @@ func FetchAllPRStatuses(prs []PR) tea.Cmd {
 				continue
 			}
 
+			key := PRKey{Num: pr.Number, Repo: pr.Repository.NameWithOwner}
+
 			if nodes := node.PullRequest.Commits.Nodes; len(nodes) > 0 {
 				if rollup := nodes[0].Commit.StatusCheckRollup; rollup == nil {
-					result.Checks[pr.Number] = "none"
+					result.Checks[key] = "none"
 				} else {
 					switch rollup.State {
 					case "SUCCESS":
-						result.Checks[pr.Number] = "success"
+						result.Checks[key] = "success"
 					case "FAILURE", "ERROR":
-						result.Checks[pr.Number] = "failure"
+						result.Checks[key] = "failure"
 					default:
-						result.Checks[pr.Number] = "pending"
+						result.Checks[key] = "pending"
 					}
 				}
 			}
@@ -465,10 +471,10 @@ func FetchAllPRStatuses(prs []PR) tea.Cmd {
 				}
 			}
 			if summary.Approvals > 0 || summary.ChangesRequested > 0 {
-				result.Reviews[pr.Number] = summary
+				result.Reviews[key] = summary
 			}
 
-			result.MergeState[pr.Number] = node.PullRequest.MergeStateStatus
+			result.MergeState[key] = node.PullRequest.MergeStateStatus
 		}
 		return result
 	}
