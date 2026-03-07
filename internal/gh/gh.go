@@ -144,17 +144,16 @@ func (m PRMode) Next() PRMode {
 
 func FetchPRs(mode PRMode, owners []string) tea.Cmd {
 	return func() tea.Msg {
+		if mode == ModeReviewRequested {
+			return fetchReviewPRs(owners)
+		}
+
 		args := []string{
 			"search", "prs",
 			"--state", "open",
 			"--json", "number,title,author,state,isDraft,createdAt,url,repository",
 			"--limit", "100",
-		}
-		switch mode {
-		case ModeReviewRequested:
-			args = append(args, "--review-requested", "@me")
-		case ModeAuthored:
-			args = append(args, "--author", "@me")
+			"--author", "@me",
 		}
 		for _, o := range owners {
 			args = append(args, "--owner", o)
@@ -171,6 +170,125 @@ func FetchPRs(mode PRMode, owners []string) tea.Cmd {
 		}
 		return PRsMsg(prs)
 	}
+}
+
+func fetchReviewPRs(owners []string) tea.Msg {
+	const prJSON = "number,title,author,state,isDraft,createdAt,url,repository"
+
+	type result struct {
+		prs []PR
+		err error
+	}
+
+	requestedCh := make(chan result, 1)
+	reviewedCh := make(chan result, 1)
+
+	ctx, cancel := context.WithTimeout(context.Background(), timeoutFetch)
+	defer cancel()
+
+	fetch := func(ch chan<- result, filter, value string) {
+		args := []string{
+			"search", "prs",
+			"--state", "open",
+			"--json", prJSON,
+			"--limit", "100",
+			filter, value,
+		}
+		for _, o := range owners {
+			args = append(args, "--owner", o)
+		}
+		out, err := exec.CommandContext(ctx, "gh", args...).CombinedOutput()
+		if err != nil {
+			ch <- result{err: fmt.Errorf("gh search prs: %w\n%s", err, strings.TrimSpace(string(out)))}
+			return
+		}
+		var prs []PR
+		if err := json.Unmarshal(out, &prs); err != nil {
+			ch <- result{err: fmt.Errorf("parse pr list: %w", err)}
+			return
+		}
+		ch <- result{prs: prs}
+	}
+
+	go fetch(requestedCh, "--review-requested", "@me")
+	go fetch(reviewedCh, "--reviewed-by", "@me")
+
+	requested := <-requestedCh
+	reviewed := <-reviewedCh
+
+	if requested.err != nil && reviewed.err != nil {
+		return ErrMsg{requested.err}
+	}
+
+	prs := requested.prs
+	seen := make(map[int]bool, len(prs))
+	for _, pr := range prs {
+		seen[pr.Number] = true
+	}
+	for _, pr := range reviewed.prs {
+		if !seen[pr.Number] {
+			prs = append(prs, pr)
+		}
+	}
+	return PRsMsg(filterByWriteAccess(ctx, prs))
+}
+
+func filterByWriteAccess(ctx context.Context, prs []PR) []PR {
+	if len(prs) == 0 {
+		return prs
+	}
+
+	repos := make(map[string]bool)
+	for _, pr := range prs {
+		repos[pr.Repository.NameWithOwner] = true
+	}
+
+	var sb strings.Builder
+	sb.WriteString("query {")
+	i := 0
+	repoIndex := make(map[int]string)
+	for repo := range repos {
+		parts := strings.SplitN(repo, "/", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		fmt.Fprintf(&sb, "\n  repo%d: repository(owner: %q, name: %q) { viewerPermission }", i, parts[0], parts[1])
+		repoIndex[i] = repo
+		i++
+	}
+	sb.WriteString("\n}")
+
+	out, err := exec.CommandContext(ctx, "gh", "api", "graphql", "-f", "query="+sb.String()).CombinedOutput()
+	if err != nil {
+		return prs
+	}
+
+	var response struct {
+		Data map[string]struct {
+			ViewerPermission string `json:"viewerPermission"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(out, &response); err != nil {
+		return prs
+	}
+
+	writable := make(map[string]bool)
+	for idx, repo := range repoIndex {
+		if node, ok := response.Data[fmt.Sprintf("repo%d", idx)]; ok {
+			switch node.ViewerPermission {
+			case "ADMIN", "WRITE", "MAINTAIN":
+				writable[repo] = true
+			}
+		}
+	}
+
+	filtered := make([]PR, 0, len(prs))
+	for _, pr := range prs {
+		if writable[pr.Repository.NameWithOwner] {
+			filtered = append(filtered, pr)
+		}
+	}
+	return filtered
 }
 
 func FetchPRDetail(number int, repo string) tea.Cmd {
