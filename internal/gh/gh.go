@@ -225,12 +225,12 @@ func fetchReviewPRs(owners []string) tea.Msg {
 	}
 
 	prs := requested.prs
-	seen := make(map[int]bool, len(prs))
+	seen := make(map[PRKey]bool, len(prs))
 	for _, pr := range prs {
-		seen[pr.Number] = true
+		seen[PRKey{Num: pr.Number, Repo: pr.Repository.NameWithOwner}] = true
 	}
 	for _, pr := range reviewed.prs {
-		if !seen[pr.Number] {
+		if !seen[PRKey{Num: pr.Number, Repo: pr.Repository.NameWithOwner}] {
 			prs = append(prs, pr)
 		}
 	}
