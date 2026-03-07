@@ -98,7 +98,7 @@ type (
 		Reviews    map[int]ReviewSummary
 		MergeState map[int]string
 	}
-	ErrMsg struct{ Err error }
+	ErrMsg     struct{ Err error }
 	ApproveMsg struct {
 		Num  int
 		Repo string

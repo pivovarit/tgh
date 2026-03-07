@@ -11,7 +11,7 @@ import (
 
 type multiFlag []string
 
-func (f *multiFlag) String() string  { return fmt.Sprintf("%v", *f) }
+func (f *multiFlag) String() string     { return fmt.Sprintf("%v", *f) }
 func (f *multiFlag) Set(v string) error { *f = append(*f, v); return nil }
 
 func main() {

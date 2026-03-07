@@ -36,7 +36,7 @@ func keyFor(pr gh.PR) prKey {
 type Operation int
 
 const (
-	OpNone          Operation = iota
+	OpNone Operation = iota
 	OpConfirmApprove
 	OpConfirmClose
 	OpConfirmMerge
@@ -48,13 +48,13 @@ const (
 )
 
 type App struct {
-	client  gh.Client
-	owners  []string
-	table   table.Model
-	prs     []gh.PR
+	client gh.Client
+	owners []string
+	table  table.Model
+	prs    []gh.PR
 
-	prMode      gh.PRMode
-	loading     bool
+	prMode       gh.PRMode
+	loading      bool
 	op           Operation
 	confirmNum   int
 	confirmTitle string
@@ -93,11 +93,11 @@ func New(owners []string) App {
 func newWithClient(c gh.Client, owners []string) App {
 	t, w := buildTable(nil, nil, nil, nil, nil, 120)
 	return App{
-		client:      c,
-		owners:      owners,
-		loading:     true,
-		table:       t,
-		widths:      w,
+		client:       c,
+		owners:       owners,
+		loading:      true,
+		table:        t,
+		widths:       w,
 		checkStatus:  map[int]string{},
 		reviewStatus: map[int]gh.ReviewSummary{},
 		mergeState:   map[int]string{},
