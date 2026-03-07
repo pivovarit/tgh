@@ -15,7 +15,7 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		m = m.rebuildTable(m.currentSelectedNumber())
+		m = m.rebuildTable(m.currentSelectedKey())
 		return m, nil
 
 	case tea.KeyPressMsg:
@@ -45,7 +45,7 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleMainKey(msg)
 
 	case gh.PRsMsg:
-		selectedNum := m.currentSelectedNumber()
+		selectedKey := m.currentSelectedKey()
 		m.prs = []gh.PR(msg)
 		slices.SortStableFunc(m.prs, func(a, b gh.PR) int {
 			return cmp.Compare(a.Repository.NameWithOwner, b.Repository.NameWithOwner)
@@ -57,7 +57,7 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.mergeState = map[gh.PRKey]string{}
 		m.loading = false
 		m.err = nil
-		m = m.rebuildTable(selectedNum)
+		m = m.rebuildTable(selectedKey)
 		return m, m.client.FetchAllPRStatuses(m.prs)
 
 	case gh.PRStatusesMsg:

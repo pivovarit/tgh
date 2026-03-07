@@ -128,11 +128,12 @@ func (m App) filteredPRs() []gh.PR {
 	return out
 }
 
-func (m App) currentSelectedNumber() int {
+func (m App) currentSelectedKey() *gh.PRKey {
 	if pr := m.currentPR(); pr != nil {
-		return pr.Number
+		k := keyFor(*pr)
+		return &k
 	}
-	return 0
+	return nil
 }
 
 func (m App) currentPR() *gh.PR {
@@ -215,7 +216,7 @@ func (m App) removePR(num int, repo string) App {
 	return m
 }
 
-func (m App) rebuildTable(selectedNum int) App {
+func (m App) rebuildTable(selectedKey *gh.PRKey) App {
 	prevCursor := m.table.Cursor()
 	filtered := m.filteredPRs()
 
@@ -224,8 +225,10 @@ func (m App) rebuildTable(selectedNum int) App {
 	m.viewportStart = 0
 
 	cursor := -1
-	if selectedNum > 0 {
-		cursor = slices.IndexFunc(filtered, func(pr gh.PR) bool { return pr.Number == selectedNum })
+	if selectedKey != nil {
+		cursor = slices.IndexFunc(filtered, func(pr gh.PR) bool {
+			return pr.Number == selectedKey.Num && pr.Repository.NameWithOwner == selectedKey.Repo
+		})
 	}
 	if cursor < 0 && len(filtered) > 0 {
 		cursor = min(prevCursor, len(filtered)-1)

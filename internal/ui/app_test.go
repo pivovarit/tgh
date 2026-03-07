@@ -71,7 +71,7 @@ func testApp(prs []gh.PR) (App, *mockClient) {
 	app.prs = prs
 	app.prsByKey = indexPRs(prs)
 	app.loading = false
-	app = app.rebuildTable(0)
+	app = app.rebuildTable(nil)
 	return app, mc
 }
 
