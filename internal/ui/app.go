@@ -71,6 +71,7 @@ type App struct {
 	width  int
 	height int
 
+	cursor        int
 	viewportStart int
 
 	detail       detailState
@@ -139,8 +140,8 @@ func (m App) currentSelectedKey() *gh.PRKey {
 
 func (m App) currentPR() *gh.PR {
 	filtered := m.filteredPRs()
-	if c := m.table.Cursor(); c >= 0 && c < len(filtered) {
-		return &filtered[c]
+	if m.cursor >= 0 && m.cursor < len(filtered) {
+		return &filtered[m.cursor]
 	}
 	return nil
 }
@@ -168,11 +169,10 @@ func (m App) selectedPRs() []gh.PR {
 
 func (m App) toggleSelect() App {
 	filtered := m.filteredPRs()
-	cursor := m.table.Cursor()
-	if cursor < 0 || cursor >= len(filtered) {
+	if m.cursor < 0 || m.cursor >= len(filtered) {
 		return m
 	}
-	key := keyFor(filtered[cursor])
+	key := keyFor(filtered[m.cursor])
 	if m.selected == nil {
 		m.selected = make(map[gh.PRKey]bool)
 	}
@@ -185,13 +185,47 @@ func (m App) toggleSelect() App {
 	return m
 }
 
-func (m App) refreshTableRows() App {
-	m.table.SetRows(buildRows(m.filteredPRs(), m.checkStatus, m.reviewStatus, m.mergeState, m.selected, m.widths))
+func (m App) moveCursor(delta, n, height int) App {
+	if n == 0 {
+		return m
+	}
+	m.cursor += delta
+	if m.cursor < 0 {
+		m.cursor = 0
+	} else if m.cursor >= n {
+		m.cursor = n - 1
+	}
+	if m.cursor < m.viewportStart {
+		m.viewportStart = m.cursor
+	} else if height > 0 && m.cursor >= m.viewportStart+height {
+		m.viewportStart = m.cursor - height + 1
+	}
+	m = m.syncTableViewport()
 	return m
 }
 
+func (m App) visibleRows() int {
+	return m.table.Height()
+}
+
+func (m App) syncTableViewport() App {
+	filtered := m.filteredPRs()
+	height := m.visibleRows()
+	end := m.viewportStart + height
+	if end > len(filtered) {
+		end = len(filtered)
+	}
+	visible := filtered[m.viewportStart:end]
+	m.table.SetRows(buildRows(visible, m.checkStatus, m.reviewStatus, m.mergeState, m.selected, m.widths))
+	m.table.SetCursor(m.cursor - m.viewportStart)
+	return m
+}
+
+func (m App) refreshTableRows() App {
+	return m.syncTableViewport()
+}
+
 func (m App) removePR(num int, repo string) App {
-	prevCursor := m.table.Cursor()
 	var kept []gh.PR
 	for _, pr := range m.prs {
 		if !(pr.Number == num && pr.Repository.NameWithOwner == repo) {
@@ -202,43 +236,42 @@ func (m App) removePR(num int, repo string) App {
 	m.prsByKey = indexPRs(m.prs)
 
 	filtered := m.filteredPRs()
-	m.table.SetRows(buildRows(filtered, m.checkStatus, m.reviewStatus, m.mergeState, m.selected, m.widths))
-
-	cursor := min(prevCursor, len(filtered)-1)
-	if cursor >= 0 {
-		m.table.SetCursor(cursor)
-		h := m.tableHeight()
-		if cursor < m.viewportStart {
-			m.viewportStart = cursor
-		} else if h > 0 && cursor >= m.viewportStart+h {
-			m.viewportStart = cursor - h + 1
-		}
+	if m.cursor >= len(filtered) {
+		m.cursor = len(filtered) - 1
 	}
+	if m.cursor < 0 {
+		m.cursor = 0
+	}
+	if m.cursor < m.viewportStart {
+		m.viewportStart = m.cursor
+	}
+	m = m.syncTableViewport()
 	return m
 }
 
 func (m App) rebuildTable(selectedKey *gh.PRKey) App {
-	prevCursor := m.table.Cursor()
 	filtered := m.filteredPRs()
 
-	m.table, m.widths = buildTable(filtered, m.checkStatus, m.reviewStatus, m.mergeState, m.selected, m.width)
+	m.table, m.widths = buildTable(nil, nil, nil, nil, nil, m.width)
 	m.table.SetHeight(m.tableHeight())
 	m.viewportStart = 0
 
-	cursor := -1
+	newCursor := -1
 	if selectedKey != nil {
-		cursor = slices.IndexFunc(filtered, func(pr gh.PR) bool {
+		newCursor = slices.IndexFunc(filtered, func(pr gh.PR) bool {
 			return pr.Number == selectedKey.Num && pr.Repository.NameWithOwner == selectedKey.Repo
 		})
 	}
-	if cursor < 0 && len(filtered) > 0 {
-		cursor = min(prevCursor, len(filtered)-1)
+	if newCursor < 0 && len(filtered) > 0 {
+		newCursor = min(m.cursor, len(filtered)-1)
 	}
-	if cursor >= 0 {
-		m.table.SetCursor(cursor)
-		if h := m.tableHeight(); h > 0 && cursor >= h {
-			m.viewportStart = cursor - h + 1
-		}
+	if newCursor < 0 {
+		newCursor = 0
 	}
+	m.cursor = newCursor
+	if h := m.visibleRows(); h > 0 && m.cursor >= h {
+		m.viewportStart = m.cursor - h + 1
+	}
+	m = m.syncTableViewport()
 	return m
 }

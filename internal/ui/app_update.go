@@ -4,10 +4,17 @@ import (
 	"cmp"
 	"fmt"
 	"slices"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/pivovarit/tgh/internal/gh"
 )
+
+const statusRecheckDelay = 5 * time.Second
+
+type recheckMsg struct {
+	prs []gh.PR
+}
 
 func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
@@ -213,11 +220,20 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.err = msg.Err
 			return m, nil
 		}
+		key := gh.PRKey{Num: msg.Num, Repo: msg.Repo}
 		m.warnMsg = fmt.Sprintf("Updated branch for #%d", msg.Num)
-		if pr, ok := m.prsByKey[gh.PRKey{Num: msg.Num, Repo: msg.Repo}]; ok {
-			return m, m.client.FetchAllPRStatuses([]gh.PR{pr})
+		m.checkStatus[key] = "pending"
+		m.mergeState[key] = ""
+		m = m.refreshTableRows()
+		if pr, ok := m.prsByKey[key]; ok {
+			return m, tea.Every(statusRecheckDelay, func(time.Time) tea.Msg {
+				return recheckMsg{prs: []gh.PR{pr}}
+			})
 		}
 		return m, nil
+
+	case recheckMsg:
+		return m, m.client.FetchAllPRStatuses(msg.prs)
 
 	case clipboardMsg:
 		if msg.err != nil {
@@ -231,14 +247,5 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	var cmd tea.Cmd
-	m.table, cmd = m.table.Update(msg)
-	cursor := m.table.Cursor()
-	height := m.tableHeight()
-	if cursor < m.viewportStart {
-		m.viewportStart = cursor
-	} else if height > 0 && cursor >= m.viewportStart+height {
-		m.viewportStart = cursor - height + 1
-	}
-	return m, cmd
+	return m, nil
 }
