@@ -59,18 +59,20 @@ func (m App) View() tea.View {
 	default:
 		const headerLines = 2
 
+		height := m.visibleRows()
+		end := m.viewportStart + height
+		if end > len(filtered) {
+			end = len(filtered)
+		}
+
 		lines := strings.Split(m.table.View(), "\n")
-		cursor := m.table.Cursor()
 		for i, line := range lines {
 			dataIdx := i - headerLines
-			if dataIdx < 0 {
+			if dataIdx < 0 || dataIdx >= end-m.viewportStart {
 				continue
 			}
 			prIdx := m.viewportStart + dataIdx
-			if prIdx >= len(filtered) {
-				break
-			}
-			if prIdx != cursor {
+			if prIdx != m.cursor {
 				pr := filtered[prIdx]
 				switch {
 				case pr.IsDraft:

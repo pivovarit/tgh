@@ -131,24 +131,34 @@ func (m App) handleMainKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	var tableMsg tea.Msg = msg
-	switch msg.Text {
-	case keyVimDown:
-		tableMsg = tea.KeyPressMsg{Code: tea.KeyDown}
-	case keyVimUp:
-		tableMsg = tea.KeyPressMsg{Code: tea.KeyUp}
+	n := len(m.filteredPRs())
+	height := m.visibleRows()
+	switch msg.Code {
+	case tea.KeyUp:
+		m = m.moveCursor(-1, n, height)
+	case tea.KeyDown:
+		m = m.moveCursor(1, n, height)
+	case tea.KeyPgUp:
+		m = m.moveCursor(-height, n, height)
+	case tea.KeyPgDown:
+		m = m.moveCursor(height, n, height)
+	case tea.KeyHome:
+		m = m.moveCursor(-n, n, height)
+	case tea.KeyEnd:
+		m = m.moveCursor(n, n, height)
+	default:
+		switch msg.Text {
+		case keyVimDown:
+			m = m.moveCursor(1, n, height)
+		case keyVimUp:
+			m = m.moveCursor(-1, n, height)
+		case "g":
+			m = m.moveCursor(-n, n, height)
+		case keyScrollBottom:
+			m = m.moveCursor(n, n, height)
+		}
 	}
-
-	var cmd tea.Cmd
-	m.table, cmd = m.table.Update(tableMsg)
-	cursor := m.table.Cursor()
-	height := m.tableHeight()
-	if cursor < m.viewportStart {
-		m.viewportStart = cursor
-	} else if height > 0 && cursor >= m.viewportStart+height {
-		m.viewportStart = cursor - height + 1
-	}
-	return m, cmd
+	return m, nil
 }
 
 func (m App) handleDetailKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
