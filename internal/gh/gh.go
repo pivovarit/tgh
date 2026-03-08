@@ -101,6 +101,7 @@ type (
 		Checks     map[PRKey]string
 		Reviews    map[PRKey]ReviewSummary
 		MergeState map[PRKey]string
+		Err        error
 	}
 	ErrMsg     struct{ Err error }
 	ApproveMsg struct {
@@ -375,107 +376,104 @@ func OpenBrowser(number int, repo string) tea.Cmd {
 }
 
 func FetchAllPRStatuses(prs []PR) tea.Cmd {
+	cmds := make([]tea.Cmd, len(prs))
+	for i, pr := range prs {
+		cmds[i] = fetchPRStatus(pr)
+	}
+	return tea.Batch(cmds...)
+}
+
+func fetchPRStatus(pr PR) tea.Cmd {
 	return func() tea.Msg {
-		if len(prs) == 0 {
+		parts := strings.SplitN(pr.Repository.NameWithOwner, "/", 2)
+		if len(parts) != 2 {
 			return PRStatusesMsg{}
 		}
 
-		var sb strings.Builder
-		sb.WriteString("query {")
-		for i, pr := range prs {
-			parts := strings.SplitN(pr.Repository.NameWithOwner, "/", 2)
-			if len(parts) != 2 {
-				continue
-			}
-			fmt.Fprintf(&sb,
-				"\n  pr%d: repository(owner: %q, name: %q) { pullRequest(number: %d) {"+
-					" commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }"+
-					" latestReviews(first: 20) { nodes { state } }"+
-					" mergeStateStatus"+
-					" } }",
-				i, parts[0], parts[1], pr.Number,
-			)
-		}
-		sb.WriteString("\n}")
+		query := fmt.Sprintf(
+			`query { repository(owner: %q, name: %q) { pullRequest(number: %d) {`+
+				` commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }`+
+				` latestReviews(first: 20) { nodes { state } }`+
+				` mergeStateStatus`+
+				` } } }`,
+			parts[0], parts[1], pr.Number,
+		)
 
 		ctx, cancel := context.WithTimeout(context.Background(), timeoutFetch)
 		defer cancel()
-		out, _ := exec.CommandContext(ctx, "gh", "api", "graphql", "-f", "query="+sb.String()).CombinedOutput()
-
-		var response struct {
-			Data map[string]json.RawMessage `json:"data"`
-		}
-		if err := json.Unmarshal(out, &response); err != nil || response.Data == nil {
-			return PRStatusesMsg{}
+		out, err := exec.CommandContext(ctx, "gh", "api", "graphql", "-f", "query="+query).Output()
+		if err != nil {
+			return PRStatusesMsg{Err: fmt.Errorf("gh api graphql (#%d): %w", pr.Number, err)}
 		}
 
-		type prNode struct {
-			PullRequest *struct {
-				Commits struct {
-					Nodes []struct {
-						Commit struct {
-							StatusCheckRollup *struct {
+		var resp struct {
+			Data struct {
+				Repository struct {
+					PullRequest *struct {
+						Commits struct {
+							Nodes []struct {
+								Commit struct {
+									StatusCheckRollup *struct {
+										State string `json:"state"`
+									} `json:"statusCheckRollup"`
+								} `json:"commit"`
+							} `json:"nodes"`
+						} `json:"commits"`
+						LatestReviews struct {
+							Nodes []struct {
 								State string `json:"state"`
-							} `json:"statusCheckRollup"`
-						} `json:"commit"`
-					} `json:"nodes"`
-				} `json:"commits"`
-				LatestReviews struct {
-					Nodes []struct {
-						State string `json:"state"`
-					} `json:"nodes"`
-				} `json:"latestReviews"`
-				MergeStateStatus string `json:"mergeStateStatus"`
-			} `json:"pullRequest"`
+							} `json:"nodes"`
+						} `json:"latestReviews"`
+						MergeStateStatus string `json:"mergeStateStatus"`
+					} `json:"pullRequest"`
+				} `json:"repository"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(out, &resp); err != nil {
+			return PRStatusesMsg{Err: fmt.Errorf("parse pr status (#%d): %w", pr.Number, err)}
 		}
 
+		key := PRKey{Num: pr.Number, Repo: pr.Repository.NameWithOwner}
 		result := PRStatusesMsg{
 			Checks:     make(map[PRKey]string),
 			Reviews:    make(map[PRKey]ReviewSummary),
 			MergeState: make(map[PRKey]string),
 		}
-		for i, pr := range prs {
-			raw, ok := response.Data[fmt.Sprintf("pr%d", i)]
-			if !ok {
-				continue
-			}
-			var node prNode
-			if err := json.Unmarshal(raw, &node); err != nil || node.PullRequest == nil {
-				continue
-			}
 
-			key := PRKey{Num: pr.Number, Repo: pr.Repository.NameWithOwner}
-
-			if nodes := node.PullRequest.Commits.Nodes; len(nodes) > 0 {
-				if rollup := nodes[0].Commit.StatusCheckRollup; rollup == nil {
-					result.Checks[key] = "none"
-				} else {
-					switch rollup.State {
-					case "SUCCESS":
-						result.Checks[key] = "success"
-					case "FAILURE", "ERROR":
-						result.Checks[key] = "failure"
-					default:
-						result.Checks[key] = "pending"
-					}
-				}
-			}
-
-			var summary ReviewSummary
-			for _, r := range node.PullRequest.LatestReviews.Nodes {
-				switch r.State {
-				case "APPROVED":
-					summary.Approvals++
-				case "CHANGES_REQUESTED":
-					summary.ChangesRequested++
-				}
-			}
-			if summary.Approvals > 0 || summary.ChangesRequested > 0 {
-				result.Reviews[key] = summary
-			}
-
-			result.MergeState[key] = node.PullRequest.MergeStateStatus
+		p := resp.Data.Repository.PullRequest
+		if p == nil {
+			return result
 		}
+
+		if nodes := p.Commits.Nodes; len(nodes) > 0 {
+			if rollup := nodes[0].Commit.StatusCheckRollup; rollup == nil {
+				result.Checks[key] = "none"
+			} else {
+				switch rollup.State {
+				case "SUCCESS":
+					result.Checks[key] = "success"
+				case "FAILURE", "ERROR":
+					result.Checks[key] = "failure"
+				default:
+					result.Checks[key] = "pending"
+				}
+			}
+		}
+
+		var summary ReviewSummary
+		for _, r := range p.LatestReviews.Nodes {
+			switch r.State {
+			case "APPROVED":
+				summary.Approvals++
+			case "CHANGES_REQUESTED":
+				summary.ChangesRequested++
+			}
+		}
+		if summary.Approvals > 0 || summary.ChangesRequested > 0 {
+			result.Reviews[key] = summary
+		}
+
+		result.MergeState[key] = p.MergeStateStatus
 		return result
 	}
 }
