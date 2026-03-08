@@ -249,6 +249,30 @@ func (m App) removePR(num int, repo string) App {
 	return m
 }
 
+func (m App) invalidateRepoStatuses(repo string) App {
+	for k := range m.checkStatus {
+		if k.Repo == repo {
+			m.checkStatus[k] = "pending"
+		}
+	}
+	for k := range m.mergeState {
+		if k.Repo == repo {
+			delete(m.mergeState, k)
+		}
+	}
+	return m
+}
+
+func (m App) prsInRepo(repo string) []gh.PR {
+	var result []gh.PR
+	for _, pr := range m.prs {
+		if pr.Repository.NameWithOwner == repo {
+			result = append(result, pr)
+		}
+	}
+	return result
+}
+
 func (m App) rebuildTable(selectedKey *gh.PRKey) App {
 	filtered := m.filteredPRs()
 
