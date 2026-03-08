@@ -201,7 +201,14 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.bulkTotal = 0
 				m.bulkFailed = 0
 				m.selected = nil
+				m = m.invalidateRepoStatuses(msg.Repo)
 				m = m.refreshTableRows()
+				repoPRs := m.prsInRepo(msg.Repo)
+				if len(repoPRs) > 0 {
+					return m, tea.Every(statusRecheckDelay, func(time.Time) tea.Msg {
+						return recheckMsg{prs: repoPRs}
+					})
+				}
 			}
 			return m, nil
 		}
@@ -212,6 +219,13 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.warnMsg = fmt.Sprintf("Merged #%d", msg.Num)
 		m = m.removePR(msg.Num, msg.Repo)
+		m = m.invalidateRepoStatuses(msg.Repo)
+		repoPRs := m.prsInRepo(msg.Repo)
+		if len(repoPRs) > 0 {
+			return m, tea.Every(statusRecheckDelay, func(time.Time) tea.Msg {
+				return recheckMsg{prs: repoPRs}
+			})
+		}
 		return m, nil
 
 	case gh.UpdateBranchMsg:
