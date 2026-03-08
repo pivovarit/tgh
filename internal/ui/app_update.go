@@ -40,7 +40,10 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.handleConfirmUpdateKey(msg)
 		}
 		if m.filtering {
-			return m.handleFilterKey(msg)
+			if isFilterKey(msg) {
+				return m.handleFilterKey(msg)
+			}
+			m.filtering = false
 		}
 		return m.handleMainKey(msg)
 
