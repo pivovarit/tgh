@@ -51,7 +51,16 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return cmp.Compare(a.Repository.NameWithOwner, b.Repository.NameWithOwner)
 		})
 		m.prsByKey = indexPRs(m.prs)
-		m.selected = nil
+		if m.selected != nil {
+			for k := range m.selected {
+				if _, exists := m.prsByKey[k]; !exists {
+					delete(m.selected, k)
+				}
+			}
+			if len(m.selected) == 0 {
+				m.selected = nil
+			}
+		}
 		m.checkStatus = map[gh.PRKey]string{}
 		m.reviewStatus = map[gh.PRKey]gh.ReviewSummary{}
 		m.mergeState = map[gh.PRKey]string{}
