@@ -61,6 +61,10 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.client.FetchAllPRStatuses(m.prs)
 
 	case gh.PRStatusesMsg:
+		if msg.Err != nil {
+			m.warnMsg = fmt.Sprintf("⚠ %s", msg.Err)
+			return m, nil
+		}
 		for k, v := range msg.Checks {
 			m.checkStatus[k] = v
 		}
