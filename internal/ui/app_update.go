@@ -46,6 +46,9 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.op == OpConfirmUpdate {
 			return m.handleConfirmUpdateKey(msg)
 		}
+		if m.op == OpConfirmAutoMerge {
+			return m.handleConfirmAutoMergeKey(msg)
+		}
 		if m.filtering {
 			if isFilterKey(msg) {
 				return m.handleFilterKey(msg)
@@ -74,6 +77,7 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.checkStatus = map[gh.PRKey]string{}
 		m.reviewStatus = map[gh.PRKey]gh.ReviewSummary{}
 		m.mergeState = map[gh.PRKey]string{}
+		m.autoMergeStatus = map[gh.PRKey]bool{}
 		m.loading = false
 		m.err = nil
 		m = m.rebuildTable(selectedKey)
@@ -92,6 +96,9 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		for k, v := range msg.MergeState {
 			m.mergeState[k] = v
+		}
+		for k, v := range msg.AutoMerge {
+			m.autoMergeStatus[k] = v
 		}
 		m = m.refreshTableRows()
 		return m, nil
@@ -226,6 +233,36 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return recheckMsg{prs: repoPRs}
 			})
 		}
+		return m, nil
+
+	case gh.AutoMergeMsg:
+		if m.bulkPending > 0 {
+			if msg.Err != nil {
+				m.bulkFailed++
+			} else {
+				key := gh.PRKey{Num: msg.Num, Repo: msg.Repo}
+				m.autoMergeStatus[key] = true
+			}
+			m.bulkPending--
+			if m.bulkPending == 0 {
+				m.op = OpNone
+				m.warnMsg = bulkSummary("auto-merge enabled", m.bulkTotal, m.bulkFailed)
+				m.bulkTotal = 0
+				m.bulkFailed = 0
+				m.selected = nil
+				m = m.refreshTableRows()
+			}
+			return m, nil
+		}
+		m.op = OpNone
+		if msg.Err != nil {
+			m.err = msg.Err
+			return m, nil
+		}
+		key := gh.PRKey{Num: msg.Num, Repo: msg.Repo}
+		m.warnMsg = fmt.Sprintf("Auto-merge enabled for #%d", msg.Num)
+		m.autoMergeStatus[key] = true
+		m = m.refreshTableRows()
 		return m, nil
 
 	case gh.UpdateBranchMsg:

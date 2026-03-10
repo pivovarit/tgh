@@ -11,6 +11,7 @@ const (
 	keyDetail       = "v"
 	keyApprove      = "a"
 	keyMerge        = "m"
+	keyAutoMerge    = "M"
 	keyClose        = "C"
 	keyBrowser      = "o"
 	keyCopy         = "c"
