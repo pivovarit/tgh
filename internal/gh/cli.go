@@ -14,3 +14,6 @@ func (CLI) OpenBrowser(number int, repo string) tea.Cmd   { return OpenBrowser(n
 func (CLI) MergePR(number int, repo string, strategy string) tea.Cmd {
 	return MergePR(number, repo, strategy)
 }
+func (CLI) AutoMergePR(number int, repo string, strategy string) tea.Cmd {
+	return AutoMergePR(number, repo, strategy)
+}

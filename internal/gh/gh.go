@@ -101,6 +101,7 @@ type (
 		Checks     map[PRKey]string
 		Reviews    map[PRKey]ReviewSummary
 		MergeState map[PRKey]string
+		AutoMerge  map[PRKey]bool
 		Err        error
 	}
 	ErrMsg     struct{ Err error }
@@ -120,6 +121,11 @@ type (
 		Err  error
 	}
 	UpdateBranchMsg struct {
+		Num  int
+		Repo string
+		Err  error
+	}
+	AutoMergeMsg struct {
 		Num  int
 		Repo string
 		Err  error
@@ -235,12 +241,16 @@ func fetchReviewPRs(owners []string) tea.Msg {
 			prs = append(prs, pr)
 		}
 	}
-	return PRsMsg(filterByWriteAccess(prs))
+	filtered, err := filterByWriteAccess(prs)
+	if err != nil {
+		return ErrMsg{err}
+	}
+	return PRsMsg(filtered)
 }
 
-func filterByWriteAccess(prs []PR) []PR {
+func filterByWriteAccess(prs []PR) ([]PR, error) {
 	if len(prs) == 0 {
-		return prs
+		return prs, nil
 	}
 
 	repos := make(map[string]bool)
@@ -265,7 +275,10 @@ func filterByWriteAccess(prs []PR) []PR {
 
 	ctx, cancel := context.WithTimeout(context.Background(), timeoutFetch)
 	defer cancel()
-	out, _ := exec.CommandContext(ctx, "gh", "api", "graphql", "-f", "query="+sb.String()).CombinedOutput()
+	out, err := exec.CommandContext(ctx, "gh", "api", "graphql", "-f", "query="+sb.String()).CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("gh api graphql (write access): %w\n%s", err, strings.TrimSpace(string(out)))
+	}
 
 	var response struct {
 		Data map[string]struct {
@@ -274,7 +287,7 @@ func filterByWriteAccess(prs []PR) []PR {
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(out, &response); err != nil || response.Data == nil {
-		return prs
+		return nil, fmt.Errorf("parse write access response: %w", err)
 	}
 
 	writable := make(map[string]bool)
@@ -296,7 +309,7 @@ func filterByWriteAccess(prs []PR) []PR {
 			filtered = append(filtered, pr)
 		}
 	}
-	return filtered
+	return filtered, nil
 }
 
 func FetchPRDetail(number int, repo string) tea.Cmd {
@@ -351,6 +364,23 @@ func MergePR(number int, repo string, strategy string) tea.Cmd {
 	}
 }
 
+func AutoMergePR(number int, repo string, strategy string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), timeoutAction)
+		defer cancel()
+		out, err := exec.CommandContext(ctx, "gh", "pr", "merge",
+			fmt.Sprintf("%d", number),
+			"--repo", repo,
+			"--"+strategy,
+			"--auto",
+		).CombinedOutput()
+		if err != nil {
+			return AutoMergeMsg{Num: number, Repo: repo, Err: fmt.Errorf("gh pr merge --auto: %w\n%s", err, strings.TrimSpace(string(out)))}
+		}
+		return AutoMergeMsg{Num: number, Repo: repo}
+	}
+}
+
 func ClosePR(number int, repo string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), timeoutAction)
@@ -395,6 +425,7 @@ func fetchPRStatus(pr PR) tea.Cmd {
 				` commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }`+
 				` latestReviews(first: 20) { nodes { state } }`+
 				` mergeStateStatus`+
+				` autoMergeRequest { enabledAt }`+
 				` } } }`,
 			parts[0], parts[1], pr.Number,
 		)
@@ -425,6 +456,9 @@ func fetchPRStatus(pr PR) tea.Cmd {
 							} `json:"nodes"`
 						} `json:"latestReviews"`
 						MergeStateStatus string `json:"mergeStateStatus"`
+						AutoMergeRequest *struct {
+							EnabledAt string `json:"enabledAt"`
+						} `json:"autoMergeRequest"`
 					} `json:"pullRequest"`
 				} `json:"repository"`
 			} `json:"data"`
@@ -438,6 +472,7 @@ func fetchPRStatus(pr PR) tea.Cmd {
 			Checks:     make(map[PRKey]string),
 			Reviews:    make(map[PRKey]ReviewSummary),
 			MergeState: make(map[PRKey]string),
+			AutoMerge:  make(map[PRKey]bool),
 		}
 
 		p := resp.Data.Repository.PullRequest
@@ -474,6 +509,7 @@ func fetchPRStatus(pr PR) tea.Cmd {
 		}
 
 		result.MergeState[key] = p.MergeStateStatus
+		result.AutoMerge[key] = p.AutoMergeRequest != nil
 		return result
 	}
 }

@@ -94,7 +94,7 @@ func TestStatusSymbol(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := statusSymbol(tt.ci, tt.rev, tt.merge)
+			got := statusSymbol(tt.ci, tt.rev, tt.merge, false)
 			if got == "" {
 				t.Error("statusSymbol() returned empty string")
 			}
@@ -108,7 +108,7 @@ func TestBuildRows(t *testing.T) {
 		{Number: 2, Repository: gh.Repository{NameWithOwner: "o/r"}, Title: "PR 2", Author: gh.Author{Login: "user"}, CreatedAt: "2025-01-01T00:00:00Z"},
 	}
 	w := colWidths{repo: 10, title: 20, author: 10}
-	rows := buildRows(prs, nil, nil, nil, nil, w)
+	rows := buildRows(prs, nil, nil, nil, nil, nil, w)
 	if len(rows) != 2 {
 		t.Fatalf("buildRows() returned %d rows, want 2", len(rows))
 	}
@@ -123,7 +123,7 @@ func TestBuildRows_WithSelection(t *testing.T) {
 	}
 	w := colWidths{repo: 10, title: 20, author: 10}
 	sel := map[gh.PRKey]bool{{Num: 1, Repo: "o/r"}: true}
-	rows := buildRows(prs, nil, nil, nil, sel, w)
+	rows := buildRows(prs, nil, nil, nil, nil, sel, w)
 	if rows[0][0] != "●" {
 		t.Errorf("selected row should have '●', got %q", rows[0][0])
 	}

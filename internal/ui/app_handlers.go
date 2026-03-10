@@ -95,6 +95,19 @@ func (m App) handleMainKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.confirmRepo = pr.Repository.NameWithOwner
 		}
 		return m, nil
+	case keyAutoMerge:
+		if sel := m.selectedPRs(); len(sel) > 0 {
+			m.op = OpConfirmAutoMerge
+			m.confirmNum = 0
+			m.confirmTitle = ""
+			m.confirmRepo = ""
+		} else if pr := m.currentPR(); pr != nil {
+			m.op = OpConfirmAutoMerge
+			m.confirmNum = pr.Number
+			m.confirmTitle = pr.Title
+			m.confirmRepo = pr.Repository.NameWithOwner
+		}
+		return m, nil
 	case keyUpdate:
 		if pr := m.currentPR(); pr != nil {
 			if m.mergeState[keyFor(*pr)] != "BEHIND" {
@@ -250,6 +263,13 @@ func (m App) handleConfirmMergeKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m.handleConfirmKey(msg, OpMerging,
 		func(pr gh.PR) tea.Cmd { return m.client.MergePR(pr.Number, pr.Repository.NameWithOwner, "squash") },
 		func() tea.Cmd { return m.client.MergePR(m.confirmNum, m.confirmRepo, "squash") },
+	)
+}
+
+func (m App) handleConfirmAutoMergeKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	return m.handleConfirmKey(msg, OpAutoMerging,
+		func(pr gh.PR) tea.Cmd { return m.client.AutoMergePR(pr.Number, pr.Repository.NameWithOwner, "squash") },
+		func() tea.Cmd { return m.client.AutoMergePR(m.confirmNum, m.confirmRepo, "squash") },
 	)
 }
 

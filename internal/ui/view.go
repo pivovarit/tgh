@@ -133,6 +133,8 @@ func (m App) helpBar() string {
 		return progressPrompt("Closing", m.confirmNum, m.bulkTotal, m.bulkPending)
 	case m.op == OpMerging:
 		return progressPrompt("Merging", m.confirmNum, m.bulkTotal, m.bulkPending)
+	case m.op == OpAutoMerging:
+		return progressPrompt("Enabling auto-merge", m.confirmNum, m.bulkTotal, m.bulkPending)
 	case m.op == OpUpdating:
 		return confirmStyle.Render(fmt.Sprintf("  Updating branch for #%d…", m.confirmNum))
 	case m.op == OpConfirmApprove:
@@ -141,6 +143,8 @@ func (m App) helpBar() string {
 		return confirmPrompt("Close", m.confirmNum, m.confirmTitle, nSel)
 	case m.op == OpConfirmMerge:
 		return confirmPrompt("Squash & merge", m.confirmNum, m.confirmTitle, nSel)
+	case m.op == OpConfirmAutoMerge:
+		return confirmPrompt("Auto-merge", m.confirmNum, m.confirmTitle, nSel)
 	case m.op == OpConfirmUpdate:
 		return confirmPrompt("Update branch for", m.confirmNum, m.confirmTitle, 0)
 	case m.detail.visible:
@@ -183,6 +187,7 @@ func (m App) helpBar() string {
 				keyStyle.Render("v") + " view · " +
 				keyStyle.Render("a") + " approve · " +
 				keyStyle.Render("m") + " merge · " +
+				keyStyle.Render("M") + " auto-merge · " +
 				keyStyle.Render("u") + " update branch · " +
 				keyStyle.Render("C") + " close · " +
 				keyStyle.Render("o") + " open · " +

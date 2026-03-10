@@ -36,10 +36,12 @@ const (
 	OpConfirmClose
 	OpConfirmMerge
 	OpConfirmUpdate
+	OpConfirmAutoMerge
 	OpApproving
 	OpClosing
 	OpMerging
 	OpUpdating
+	OpAutoMerging
 )
 
 type App struct {
@@ -74,12 +76,13 @@ type App struct {
 	cursor        int
 	viewportStart int
 
-	detail       detailState
-	prsByKey     map[gh.PRKey]gh.PR
-	checkStatus  map[gh.PRKey]string
-	reviewStatus map[gh.PRKey]gh.ReviewSummary
-	mergeState   map[gh.PRKey]string
-	widths       colWidths
+	detail          detailState
+	prsByKey        map[gh.PRKey]gh.PR
+	checkStatus     map[gh.PRKey]string
+	reviewStatus    map[gh.PRKey]gh.ReviewSummary
+	mergeState      map[gh.PRKey]string
+	autoMergeStatus map[gh.PRKey]bool
+	widths          colWidths
 }
 
 func New(owners []string) App {
@@ -89,15 +92,16 @@ func New(owners []string) App {
 func newWithClient(c gh.Client, owners []string) App {
 	t, w := buildTable(nil, nil, nil, nil, nil, 120)
 	return App{
-		client:       c,
-		owners:       owners,
-		loading:      true,
-		table:        t,
-		widths:       w,
-		prsByKey:     map[gh.PRKey]gh.PR{},
-		checkStatus:  map[gh.PRKey]string{},
-		reviewStatus: map[gh.PRKey]gh.ReviewSummary{},
-		mergeState:   map[gh.PRKey]string{},
+		client:          c,
+		owners:          owners,
+		loading:         true,
+		table:           t,
+		widths:          w,
+		prsByKey:        map[gh.PRKey]gh.PR{},
+		checkStatus:     map[gh.PRKey]string{},
+		reviewStatus:    map[gh.PRKey]gh.ReviewSummary{},
+		mergeState:      map[gh.PRKey]string{},
+		autoMergeStatus: map[gh.PRKey]bool{},
 	}
 }
 
@@ -181,7 +185,7 @@ func (m App) toggleSelect() App {
 	} else {
 		m.selected[key] = true
 	}
-	m.table.SetRows(buildRows(filtered, m.checkStatus, m.reviewStatus, m.mergeState, m.selected, m.widths))
+	m = m.syncTableViewport()
 	return m
 }
 
@@ -210,13 +214,16 @@ func (m App) visibleRows() int {
 
 func (m App) syncTableViewport() App {
 	filtered := m.filteredPRs()
+	if m.viewportStart >= len(filtered) {
+		m.viewportStart = max(0, len(filtered)-1)
+	}
 	height := m.visibleRows()
 	end := m.viewportStart + height
 	if end > len(filtered) {
 		end = len(filtered)
 	}
 	visible := filtered[m.viewportStart:end]
-	m.table.SetRows(buildRows(visible, m.checkStatus, m.reviewStatus, m.mergeState, m.selected, m.widths))
+	m.table.SetRows(buildRows(visible, m.checkStatus, m.reviewStatus, m.mergeState, m.autoMergeStatus, m.selected, m.widths))
 	m.table.SetCursor(m.cursor - m.viewportStart)
 	return m
 }

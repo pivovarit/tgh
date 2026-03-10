@@ -94,4 +94,7 @@ var (
 	conflictStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#F87171")).
 			Bold(true)
+
+	autoMergeStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#38BDF8"))
 )

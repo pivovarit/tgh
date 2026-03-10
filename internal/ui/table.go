@@ -46,13 +46,13 @@ func computeColWidths(prs []gh.PR, width int) colWidths {
 	total := repoW + titleW + authorW
 	if total > 0 {
 		repoW = max(remaining*repoW/total, 4)
-		titleW = max(remaining*titleW/total, 5)
-		authorW = max(remaining-repoW-titleW, 6)
+		authorW = min(max(remaining*authorW/total, 6), 20)
+		titleW = max(remaining-repoW-authorW, 5)
 	}
 	return colWidths{repoW, titleW, authorW}
 }
 
-func buildRows(prs []gh.PR, checkStatus map[gh.PRKey]string, reviewStatus map[gh.PRKey]gh.ReviewSummary, mergeState map[gh.PRKey]string, selected map[gh.PRKey]bool, w colWidths) []table.Row {
+func buildRows(prs []gh.PR, checkStatus map[gh.PRKey]string, reviewStatus map[gh.PRKey]gh.ReviewSummary, mergeState map[gh.PRKey]string, autoMerge map[gh.PRKey]bool, selected map[gh.PRKey]bool, w colWidths) []table.Row {
 	rows := make([]table.Row, len(prs))
 	for i, pr := range prs {
 		key := keyFor(pr)
@@ -64,9 +64,9 @@ func buildRows(prs []gh.PR, checkStatus map[gh.PRKey]string, reviewStatus map[gh
 			sel,
 			trunc(pr.Repository.NameWithOwner, w.repo),
 			trunc(prNum(pr.Number)+" "+pr.Title, w.title),
-			trunc(pr.Author.Login, w.author),
 			trunc(gh.RelativeTime(pr.CreatedAt), ageW),
-			statusSymbol(checkStatus[key], reviewStatus[key], mergeState[key]),
+			statusSymbol(checkStatus[key], reviewStatus[key], mergeState[key], autoMerge[key]),
+			trunc(pr.Author.Login, w.author),
 		}
 	}
 	return rows
@@ -80,14 +80,18 @@ func buildTable(prs []gh.PR, checkStatus map[gh.PRKey]string, reviewStatus map[g
 		{Title: "", Width: selW},
 		{Title: "Repo", Width: w.repo},
 		{Title: "Title", Width: w.title},
-		{Title: "Author", Width: w.author},
 		{Title: "Age", Width: ageW},
 		{Title: "CI", Width: ciW},
+		{Title: "Author", Width: w.author},
 	}
 
+	var rows []table.Row
+	if len(prs) > 0 {
+		rows = buildRows(prs, checkStatus, reviewStatus, mergeState, nil, selected, w)
+	}
 	t := table.New(
 		table.WithColumns(cols),
-		table.WithRows(buildRows(prs, checkStatus, reviewStatus, mergeState, selected, w)),
+		table.WithRows(rows),
 		table.WithFocused(true),
 		table.WithWidth(innerWidth),
 	)
@@ -108,7 +112,7 @@ func buildTable(prs []gh.PR, checkStatus map[gh.PRKey]string, reviewStatus map[g
 	return t, w
 }
 
-func statusSymbol(ci string, rev gh.ReviewSummary, merge string) string {
+func statusSymbol(ci string, rev gh.ReviewSummary, merge string, autoMerge bool) string {
 	var ciSym string
 	switch ci {
 	case "success":
@@ -127,7 +131,11 @@ func statusSymbol(ci string, rev gh.ReviewSummary, merge string) string {
 	if rev.ChangesRequested > 0 {
 		revSym = reviewChangesStyle.Render("±")
 	} else if rev.Approvals > 0 {
-		revSym = reviewApprovedStyle.Render(strconv.Itoa(rev.Approvals))
+		s := strconv.Itoa(rev.Approvals)
+		if rev.Approvals > 9 {
+			s = "9+"
+		}
+		revSym = reviewApprovedStyle.Render(s)
 	}
 
 	var mergeSym string
@@ -144,6 +152,9 @@ func statusSymbol(ci string, rev gh.ReviewSummary, merge string) string {
 	}
 	if mergeSym != "" {
 		result += mergeSym
+	}
+	if autoMerge {
+		result += autoMergeStyle.Render("»")
 	}
 	return result
 }

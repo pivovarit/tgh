@@ -14,12 +14,14 @@ type mockClient struct {
 	approveCalled       bool
 	closeCalled         bool
 	mergeCalled         bool
+	autoMergeCalled     bool
 	updateBranchCalled  bool
 	openBrowserCalled   bool
 	lastMergeStrategy   string
 	lastApproveNum      int
 	lastCloseNum        int
 	lastMergeNum        int
+	lastAutoMergeNum    int
 	lastUpdateBranchNum int
 	lastOpenBrowserNum  int
 }
@@ -51,6 +53,11 @@ func (m *mockClient) MergePR(number int, repo string, strategy string) tea.Cmd {
 	m.lastMergeNum = number
 	m.lastMergeStrategy = strategy
 	return func() tea.Msg { return gh.MergeMsg{Num: number, Repo: repo} }
+}
+func (m *mockClient) AutoMergePR(number int, repo string, strategy string) tea.Cmd {
+	m.autoMergeCalled = true
+	m.lastAutoMergeNum = number
+	return func() tea.Msg { return gh.AutoMergeMsg{Num: number, Repo: repo} }
 }
 func (m *mockClient) UpdateBranch(number int, repo string) tea.Cmd {
 	m.updateBranchCalled = true
