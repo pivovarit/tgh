@@ -120,6 +120,18 @@ func (m App) handleMainKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.confirmRepo = pr.Repository.NameWithOwner
 		}
 		return m, nil
+	case keyRerun:
+		if pr := m.currentPR(); pr != nil {
+			if m.checkStatus[keyFor(*pr)] != "failure" {
+				m.warnMsg = "no failed checks to rerun"
+				return m, nil
+			}
+			m.op = OpConfirmRerun
+			m.confirmNum = pr.Number
+			m.confirmTitle = pr.Title
+			m.confirmRepo = pr.Repository.NameWithOwner
+		}
+		return m, nil
 	case keyBrowser:
 		if pr := m.currentPR(); pr != nil {
 			return m, m.client.OpenBrowser(pr.Number, pr.Repository.NameWithOwner)
@@ -276,6 +288,12 @@ func (m App) handleConfirmAutoMergeKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd)
 func (m App) handleConfirmUpdateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m.handleConfirmKey(msg, OpUpdating, nil,
 		func() tea.Cmd { return m.client.UpdateBranch(m.confirmNum, m.confirmRepo) },
+	)
+}
+
+func (m App) handleConfirmRerunKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	return m.handleConfirmKey(msg, OpRerunning, nil,
+		func() tea.Cmd { return m.client.RerunChecks(m.confirmNum, m.confirmRepo) },
 	)
 }
 

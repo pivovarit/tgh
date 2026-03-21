@@ -17,6 +17,7 @@ const (
 	keyCopy         = "c"
 	keySelect       = "x"
 	keyUpdate       = "u"
+	keyRerun        = "R"
 	keyVimDown      = "j"
 	keyVimUp        = "k"
 	keyScrollBottom = "G"

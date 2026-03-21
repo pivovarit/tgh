@@ -37,11 +37,13 @@ const (
 	OpConfirmMerge
 	OpConfirmUpdate
 	OpConfirmAutoMerge
+	OpConfirmRerun
 	OpApproving
 	OpClosing
 	OpMerging
 	OpUpdating
 	OpAutoMerging
+	OpRerunning
 )
 
 type App struct {

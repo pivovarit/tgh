@@ -11,5 +11,6 @@ type Client interface {
 	MergePR(number int, repo string, strategy string) tea.Cmd
 	AutoMergePR(number int, repo string, strategy string) tea.Cmd
 	UpdateBranch(number int, repo string) tea.Cmd
+	RerunChecks(number int, repo string) tea.Cmd
 	OpenBrowser(number int, repo string) tea.Cmd
 }

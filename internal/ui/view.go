@@ -137,6 +137,8 @@ func (m App) helpBar() string {
 		return progressPrompt("Enabling auto-merge", m.confirmNum, m.bulkTotal, m.bulkPending)
 	case m.op == OpUpdating:
 		return confirmStyle.Render(fmt.Sprintf("  Updating branch for #%d…", m.confirmNum))
+	case m.op == OpRerunning:
+		return confirmStyle.Render(fmt.Sprintf("  Retriggering CI for #%d…", m.confirmNum))
 	case m.op == OpConfirmApprove:
 		return confirmPrompt("Approve", m.confirmNum, m.confirmTitle, nSel)
 	case m.op == OpConfirmClose:
@@ -147,6 +149,8 @@ func (m App) helpBar() string {
 		return confirmPrompt("Auto-merge", m.confirmNum, m.confirmTitle, nSel)
 	case m.op == OpConfirmUpdate:
 		return confirmPrompt("Update branch for", m.confirmNum, m.confirmTitle, 0)
+	case m.op == OpConfirmRerun:
+		return confirmPrompt("Retrigger CI for", m.confirmNum, m.confirmTitle, 0)
 	case m.detail.visible:
 		return helpStyle.Render(
 			"  ↑/↓ scroll · " +
@@ -189,6 +193,7 @@ func (m App) helpBar() string {
 				keyStyle.Render("m") + " merge · " +
 				keyStyle.Render("M") + " auto-merge · " +
 				keyStyle.Render("u") + " update branch · " +
+				keyStyle.Render("R") + " rerun CI · " +
 				keyStyle.Render("C") + " close · " +
 				keyStyle.Render("o") + " open · " +
 				keyStyle.Render("c") + " copy url · " +
