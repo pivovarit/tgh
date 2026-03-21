@@ -130,6 +130,11 @@ type (
 		Repo string
 		Err  error
 	}
+	RerunChecksMsg struct {
+		Num  int
+		Repo string
+		Err  error
+	}
 	NopMsg struct{}
 )
 
@@ -526,6 +531,43 @@ func UpdateBranch(number int, repo string) tea.Cmd {
 			return UpdateBranchMsg{Num: number, Repo: repo, Err: fmt.Errorf("gh pr update-branch: %w\n%s", err, strings.TrimSpace(string(out)))}
 		}
 		return UpdateBranchMsg{Num: number, Repo: repo}
+	}
+}
+
+func RerunChecks(number int, repo string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), timeoutAction)
+		defer cancel()
+
+		shaOut, err := exec.CommandContext(ctx, "gh", "api",
+			fmt.Sprintf("repos/%s/pulls/%d", repo, number),
+			"--jq", ".head.sha",
+		).Output()
+		if err != nil {
+			return RerunChecksMsg{Num: number, Repo: repo, Err: fmt.Errorf("get PR head SHA: %w", err)}
+		}
+		sha := strings.TrimSpace(string(shaOut))
+
+		runsOut, err := exec.CommandContext(ctx, "gh", "api",
+			fmt.Sprintf("repos/%s/actions/runs?head_sha=%s&per_page=20", repo, sha),
+			"--jq", `.workflow_runs[] | select(.conclusion == "failure" or .conclusion == "startup_failure") | .id`,
+		).Output()
+		if err != nil {
+			return RerunChecksMsg{Num: number, Repo: repo, Err: fmt.Errorf("list runs: %w", err)}
+		}
+
+		runIDs := strings.Fields(strings.TrimSpace(string(runsOut)))
+		if len(runIDs) == 0 {
+			return RerunChecksMsg{Num: number, Repo: repo, Err: fmt.Errorf("no failed runs to rerun")}
+		}
+
+		for _, runID := range runIDs {
+			out, err := exec.CommandContext(ctx, "gh", "run", "rerun", runID, "--failed", "--repo", repo).CombinedOutput()
+			if err != nil {
+				return RerunChecksMsg{Num: number, Repo: repo, Err: fmt.Errorf("rerun %s: %w\n%s", runID, err, strings.TrimSpace(string(out)))}
+			}
+		}
+		return RerunChecksMsg{Num: number, Repo: repo}
 	}
 }
 

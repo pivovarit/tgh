@@ -69,6 +69,9 @@ func (m *mockClient) OpenBrowser(number int, repo string) tea.Cmd {
 	m.lastOpenBrowserNum = number
 	return func() tea.Msg { return gh.NopMsg{} }
 }
+func (m *mockClient) RerunChecks(number int, repo string) tea.Cmd {
+	return func() tea.Msg { return gh.RerunChecksMsg{Num: number, Repo: repo} }
+}
 
 func testApp(prs []gh.PR) (App, *mockClient) {
 	mc := &mockClient{}

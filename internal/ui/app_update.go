@@ -49,6 +49,9 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.op == OpConfirmAutoMerge {
 			return m.handleConfirmAutoMergeKey(msg)
 		}
+		if m.op == OpConfirmRerun {
+			return m.handleConfirmRerunKey(msg)
+		}
 		if m.filtering {
 			if isFilterKey(msg) {
 				return m.handleFilterKey(msg)
@@ -263,6 +266,23 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.warnMsg = fmt.Sprintf("Auto-merge enabled for #%d", msg.Num)
 		m.autoMergeStatus[key] = true
 		m = m.refreshTableRows()
+		return m, nil
+
+	case gh.RerunChecksMsg:
+		m.op = OpNone
+		if msg.Err != nil {
+			m.err = msg.Err
+			return m, nil
+		}
+		key := gh.PRKey{Num: msg.Num, Repo: msg.Repo}
+		m.warnMsg = fmt.Sprintf("Retriggered CI for #%d", msg.Num)
+		m.checkStatus[key] = "pending"
+		m = m.refreshTableRows()
+		if pr, ok := m.prsByKey[key]; ok {
+			return m, tea.Every(statusRecheckDelay, func(time.Time) tea.Msg {
+				return recheckMsg{prs: []gh.PR{pr}}
+			})
+		}
 		return m, nil
 
 	case gh.UpdateBranchMsg:

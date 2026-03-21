@@ -10,6 +10,7 @@ func (CLI) FetchAllPRStatuses(prs []PR) tea.Cmd           { return FetchAllPRSta
 func (CLI) ApprovePR(number int, repo string) tea.Cmd     { return ApprovePR(number, repo) }
 func (CLI) ClosePR(number int, repo string) tea.Cmd       { return ClosePR(number, repo) }
 func (CLI) UpdateBranch(number int, repo string) tea.Cmd  { return UpdateBranch(number, repo) }
+func (CLI) RerunChecks(number int, repo string) tea.Cmd   { return RerunChecks(number, repo) }
 func (CLI) OpenBrowser(number int, repo string) tea.Cmd   { return OpenBrowser(number, repo) }
 func (CLI) MergePR(number int, repo string, strategy string) tea.Cmd {
 	return MergePR(number, repo, strategy)
