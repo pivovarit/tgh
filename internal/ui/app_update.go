@@ -28,7 +28,14 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyPressMsg:
 		m.warnMsg = ""
 		m.copiedName = ""
-		if msg.String() == keyQuit || msg.String() == keyForceQuit {
+		if msg.String() == keyForceQuit {
+			return m, tea.Quit
+		}
+		if msg.String() == keyQuit {
+			if m.err != nil {
+				m.err = nil
+				return m, nil
+			}
 			return m, tea.Quit
 		}
 		if m.detail.visible {
