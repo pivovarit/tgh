@@ -156,7 +156,10 @@ func (m App) helpBar() string {
 			"  ↑/↓ scroll · " +
 				keyStyle.Render("g") + " top · " +
 				keyStyle.Render("G") + " bottom · " +
-				keyStyle.Render("esc") + "/" + keyStyle.Render("v") + " close · " +
+				keyStyle.Render("a") + " approve · " +
+				keyStyle.Render("m") + " merge · " +
+				keyStyle.Render("C") + " close · " +
+				keyStyle.Render("esc") + "/" + keyStyle.Render("v") + " close panel · " +
 				keyStyle.Render("q") + " quit",
 		)
 	case m.filtering:

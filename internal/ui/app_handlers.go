@@ -31,6 +31,7 @@ func (m App) handleMainKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.detail.visible = true
 			m.detail.prNumber = pr.Number
 			m.detail.prTitle = pr.Title
+			m.detail.prRepo = pr.Repository.NameWithOwner
 			m.detail.pr = nil
 			m.detail.lines = nil
 			m.detail.scroll = scrollState{}
@@ -208,6 +209,33 @@ func (m App) handleDetailKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.detail.scroll = m.detail.scroll.down(len(m.detail.lines), detailPanelHeight-2)
 	case keyVimUp:
 		m.detail.scroll = m.detail.scroll.up()
+	case keyApprove:
+		m.op = OpConfirmApprove
+		m.confirmNum = m.detail.prNumber
+		m.confirmTitle = m.detail.prTitle
+		m.confirmRepo = m.detail.prRepo
+		return m, nil
+	case keyMerge:
+		key := gh.PRKey{Num: m.detail.prNumber, Repo: m.detail.prRepo}
+		switch m.mergeState[key] {
+		case "BEHIND":
+			m.warnMsg = "cannot merge: branch is not up to date with the base branch"
+			return m, nil
+		case "DIRTY":
+			m.warnMsg = "cannot merge: branch has merge conflicts"
+			return m, nil
+		}
+		m.op = OpConfirmMerge
+		m.confirmNum = m.detail.prNumber
+		m.confirmTitle = m.detail.prTitle
+		m.confirmRepo = m.detail.prRepo
+		return m, nil
+	case keyClose:
+		m.op = OpConfirmClose
+		m.confirmNum = m.detail.prNumber
+		m.confirmTitle = m.detail.prTitle
+		m.confirmRepo = m.detail.prRepo
+		return m, nil
 	}
 	return m, nil
 }
