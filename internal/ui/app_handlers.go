@@ -286,13 +286,15 @@ func (m App) handleConfirmAutoMergeKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd)
 }
 
 func (m App) handleConfirmUpdateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	return m.handleConfirmKey(msg, OpUpdating, nil,
+	return m.handleConfirmKey(msg, OpUpdating,
+		func(pr gh.PR) tea.Cmd { return m.client.UpdateBranch(pr.Number, pr.Repository.NameWithOwner) },
 		func() tea.Cmd { return m.client.UpdateBranch(m.confirmNum, m.confirmRepo) },
 	)
 }
 
 func (m App) handleConfirmRerunKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	return m.handleConfirmKey(msg, OpRerunning, nil,
+	return m.handleConfirmKey(msg, OpRerunning,
+		func(pr gh.PR) tea.Cmd { return m.client.RerunChecks(pr.Number, pr.Repository.NameWithOwner) },
 		func() tea.Cmd { return m.client.RerunChecks(m.confirmNum, m.confirmRepo) },
 	)
 }
