@@ -10,10 +10,14 @@ import (
 	"github.com/pivovarit/tgh/internal/gh"
 )
 
-const statusRecheckDelay = 5 * time.Second
+const (
+	statusRecheckDelay = 5 * time.Second
+	maxRecheckAttempts = 12 // 12 × 5s = 60s max polling window
+)
 
 type recheckMsg struct {
-	prs []gh.PR
+	prs     []gh.PR
+	attempt int
 }
 
 func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -222,8 +226,8 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m = m.refreshTableRows()
 				repoPRs := m.prsInRepo(msg.Repo)
 				if len(repoPRs) > 0 {
-					return m, tea.Every(statusRecheckDelay, func(time.Time) tea.Msg {
-						return recheckMsg{prs: repoPRs}
+					return m, tea.Tick(statusRecheckDelay, func(time.Time) tea.Msg {
+						return recheckMsg{prs: repoPRs, attempt: 0}
 					})
 				}
 			}
@@ -239,8 +243,8 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m = m.invalidateRepoStatuses(msg.Repo)
 		repoPRs := m.prsInRepo(msg.Repo)
 		if len(repoPRs) > 0 {
-			return m, tea.Every(statusRecheckDelay, func(time.Time) tea.Msg {
-				return recheckMsg{prs: repoPRs}
+			return m, tea.Tick(statusRecheckDelay, func(time.Time) tea.Msg {
+				return recheckMsg{prs: repoPRs, attempt: 0}
 			})
 		}
 		return m, nil
@@ -286,8 +290,8 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.checkStatus[key] = "pending"
 		m = m.refreshTableRows()
 		if pr, ok := m.prsByKey[key]; ok {
-			return m, tea.Every(statusRecheckDelay, func(time.Time) tea.Msg {
-				return recheckMsg{prs: []gh.PR{pr}}
+			return m, tea.Tick(statusRecheckDelay, func(time.Time) tea.Msg {
+				return recheckMsg{prs: []gh.PR{pr}, attempt: 0}
 			})
 		}
 		return m, nil
@@ -304,14 +308,33 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.mergeState[key] = ""
 		m = m.refreshTableRows()
 		if pr, ok := m.prsByKey[key]; ok {
-			return m, tea.Every(statusRecheckDelay, func(time.Time) tea.Msg {
-				return recheckMsg{prs: []gh.PR{pr}}
+			return m, tea.Tick(statusRecheckDelay, func(time.Time) tea.Msg {
+				return recheckMsg{prs: []gh.PR{pr}, attempt: 0}
 			})
 		}
 		return m, nil
 
 	case recheckMsg:
-		return m, m.client.FetchAllPRStatuses(msg.prs)
+		if msg.attempt >= maxRecheckAttempts {
+			return m, nil
+		}
+		allResolved := true
+		for _, pr := range msg.prs {
+			key := keyFor(pr)
+			if s := m.checkStatus[key]; s == "pending" || s == "" {
+				allResolved = false
+				break
+			}
+		}
+		if allResolved {
+			return m, nil
+		}
+		prs := msg.prs
+		attempt := msg.attempt + 1
+		next := tea.Tick(statusRecheckDelay, func(time.Time) tea.Msg {
+			return recheckMsg{prs: prs, attempt: attempt}
+		})
+		return m, tea.Batch(m.client.FetchAllPRStatuses(prs), next)
 
 	case clipboardMsg:
 		if msg.err != nil {
