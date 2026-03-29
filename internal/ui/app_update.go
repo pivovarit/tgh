@@ -42,9 +42,6 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, tea.Quit
 		}
-		if m.detail.visible {
-			return m.handleDetailKey(msg)
-		}
 		if m.op == OpConfirmApprove {
 			return m.handleConfirmApproveKey(msg)
 		}
@@ -62,6 +59,9 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.op == OpConfirmRerun {
 			return m.handleConfirmRerunKey(msg)
+		}
+		if m.detail.visible {
+			return m.handleDetailKey(msg)
 		}
 		if m.filtering {
 			if isFilterKey(msg) {

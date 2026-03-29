@@ -14,6 +14,7 @@ type detailState struct {
 	visible  bool
 	prNumber int
 	prTitle  string
+	prRepo   string
 	pr       *gh.PRDetail
 	lines    []string
 	scroll   scrollState
@@ -26,6 +27,7 @@ func (m App) closeDetail() App {
 	m.detail.lines = nil
 	m.detail.scroll = scrollState{}
 	m.detail.loading = false
+	m.detail.prRepo = ""
 	m.table.SetHeight(m.tableHeight())
 	return m
 }

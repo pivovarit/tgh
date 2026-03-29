@@ -609,6 +609,15 @@ func TestApp_TableHeight_SmallTerminal(t *testing.T) {
 	}
 }
 
+func TestApp_DetailView_StoresRepo(t *testing.T) {
+	app, _ := testApp(testPRs)
+	model, _ := app.Update(tea.KeyPressMsg{Code: 'v', Text: "v"})
+	updated := model.(App)
+	if updated.detail.prRepo != "org/repo1" {
+		t.Errorf("detail.prRepo = %q, want %q", updated.detail.prRepo, "org/repo1")
+	}
+}
+
 func TestBulkSummary(t *testing.T) {
 	tests := []struct {
 		verb   string
@@ -630,3 +639,126 @@ func TestBulkSummary(t *testing.T) {
 type errStr string
 
 func (e errStr) Error() string { return string(e) }
+
+func TestApp_DetailView_Approve(t *testing.T) {
+	app, _ := testApp(testPRs)
+	app.detail.visible = true
+	app.detail.prNumber = 1
+	app.detail.prTitle = "Fix bug"
+	app.detail.prRepo = "org/repo1"
+
+	model, _ := app.Update(tea.KeyPressMsg{Code: 'a', Text: "a"})
+	updated := model.(App)
+	if updated.op != OpConfirmApprove {
+		t.Errorf("op = %d, want OpConfirmApprove", updated.op)
+	}
+	if updated.confirmNum != 1 {
+		t.Errorf("confirmNum = %d, want 1", updated.confirmNum)
+	}
+	if updated.confirmRepo != "org/repo1" {
+		t.Errorf("confirmRepo = %q, want %q", updated.confirmRepo, "org/repo1")
+	}
+}
+
+func TestApp_DetailView_ApproveConfirmWhileVisible(t *testing.T) {
+	app, mc := testApp(testPRs)
+	app.detail.visible = true
+	app.detail.prNumber = 1
+	app.detail.prTitle = "Fix bug"
+	app.detail.prRepo = "org/repo1"
+
+	model, _ := app.Update(tea.KeyPressMsg{Code: 'a', Text: "a"})
+	updated := model.(App)
+
+	model, cmd := updated.Update(tea.KeyPressMsg{Code: 'y', Text: "y"})
+	updated = model.(App)
+	if updated.op != OpApproving {
+		t.Errorf("op = %d, want OpApproving", updated.op)
+	}
+	if cmd == nil {
+		t.Fatal("should return approve command")
+	}
+	cmd()
+	if !mc.approveCalled {
+		t.Error("should call ApprovePR")
+	}
+	if mc.lastApproveNum != 1 {
+		t.Errorf("lastApproveNum = %d, want 1", mc.lastApproveNum)
+	}
+}
+
+func TestApp_DetailView_Close(t *testing.T) {
+	app, _ := testApp(testPRs)
+	app.detail.visible = true
+	app.detail.prNumber = 2
+	app.detail.prTitle = "Add feature"
+	app.detail.prRepo = "org/repo2"
+
+	model, _ := app.Update(tea.KeyPressMsg{Code: 'C', Text: "C"})
+	updated := model.(App)
+	if updated.op != OpConfirmClose {
+		t.Errorf("op = %d, want OpConfirmClose", updated.op)
+	}
+	if updated.confirmNum != 2 {
+		t.Errorf("confirmNum = %d, want 2", updated.confirmNum)
+	}
+	if updated.confirmRepo != "org/repo2" {
+		t.Errorf("confirmRepo = %q, want %q", updated.confirmRepo, "org/repo2")
+	}
+}
+
+func TestApp_DetailView_Merge(t *testing.T) {
+	app, _ := testApp(testPRs)
+	app.detail.visible = true
+	app.detail.prNumber = 1
+	app.detail.prTitle = "Fix bug"
+	app.detail.prRepo = "org/repo1"
+
+	model, _ := app.Update(tea.KeyPressMsg{Code: 'm', Text: "m"})
+	updated := model.(App)
+	if updated.op != OpConfirmMerge {
+		t.Errorf("op = %d, want OpConfirmMerge", updated.op)
+	}
+	if updated.confirmNum != 1 {
+		t.Errorf("confirmNum = %d, want 1", updated.confirmNum)
+	}
+	if updated.confirmRepo != "org/repo1" {
+		t.Errorf("confirmRepo = %q, want %q", updated.confirmRepo, "org/repo1")
+	}
+}
+
+func TestApp_DetailView_MergeBlockedByBehind(t *testing.T) {
+	app, _ := testApp(testPRs)
+	app.mergeState = map[gh.PRKey]string{{Num: 1, Repo: "org/repo1"}: "BEHIND"}
+	app.detail.visible = true
+	app.detail.prNumber = 1
+	app.detail.prTitle = "Fix bug"
+	app.detail.prRepo = "org/repo1"
+
+	model, _ := app.Update(tea.KeyPressMsg{Code: 'm', Text: "m"})
+	updated := model.(App)
+	if updated.op != OpNone {
+		t.Error("should not enter merge confirm when branch is behind")
+	}
+	if updated.warnMsg == "" {
+		t.Error("should set warnMsg when blocked")
+	}
+}
+
+func TestApp_DetailView_MergeBlockedByDirty(t *testing.T) {
+	app, _ := testApp(testPRs)
+	app.mergeState = map[gh.PRKey]string{{Num: 1, Repo: "org/repo1"}: "DIRTY"}
+	app.detail.visible = true
+	app.detail.prNumber = 1
+	app.detail.prTitle = "Fix bug"
+	app.detail.prRepo = "org/repo1"
+
+	model, _ := app.Update(tea.KeyPressMsg{Code: 'm', Text: "m"})
+	updated := model.(App)
+	if updated.op != OpNone {
+		t.Error("should not enter merge confirm when conflicts exist")
+	}
+	if updated.warnMsg == "" {
+		t.Error("should set warnMsg when blocked")
+	}
+}
