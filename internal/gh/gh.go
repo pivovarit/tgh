@@ -373,14 +373,24 @@ func AutoMergePR(number int, repo string, strategy string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), timeoutAction)
 		defer cancel()
+		num := fmt.Sprintf("%d", number)
 		out, err := exec.CommandContext(ctx, "gh", "pr", "merge",
-			fmt.Sprintf("%d", number),
+			num,
 			"--repo", repo,
 			"--"+strategy,
 			"--auto",
 		).CombinedOutput()
 		if err != nil {
-			return AutoMergeMsg{Num: number, Repo: repo, Err: fmt.Errorf("gh pr merge --auto: %w\n%s", err, strings.TrimSpace(string(out)))}
+			out2, err2 := exec.CommandContext(ctx, "gh", "pr", "merge",
+				num,
+				"--repo", repo,
+				"--"+strategy,
+			).CombinedOutput()
+			if err2 != nil {
+				return AutoMergeMsg{Num: number, Repo: repo, Err: fmt.Errorf("gh pr merge --auto: %w\n%s", err, strings.TrimSpace(string(out)))}
+			}
+			_ = out2
+			return AutoMergeMsg{Num: number, Repo: repo}
 		}
 		return AutoMergeMsg{Num: number, Repo: repo}
 	}
