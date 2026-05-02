@@ -158,39 +158,186 @@ func (m PRMode) Next() PRMode {
 	return (m + 1) % 2
 }
 
+func ghGraphQL(ctx context.Context, query string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, "gh", "api", "graphql", "-f", "query="+query)
+	out, err := cmd.Output()
+	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			return nil, fmt.Errorf("graphql: %w\n%s", err, strings.TrimSpace(string(exitErr.Stderr)))
+		}
+		return nil, fmt.Errorf("graphql: %w", err)
+	}
+	return out, nil
+}
+
+func prNodeID(ctx context.Context, number int, repo string) (string, error) {
+	parts := strings.SplitN(repo, "/", 2)
+	if len(parts) != 2 {
+		return "", fmt.Errorf("invalid repo: %s", repo)
+	}
+	query := fmt.Sprintf(`{ repository(owner: %q, name: %q) { pullRequest(number: %d) { id } } }`,
+		parts[0], parts[1], number)
+	out, err := ghGraphQL(ctx, query)
+	if err != nil {
+		return "", err
+	}
+	var resp struct {
+		Data struct {
+			Repository struct {
+				PullRequest struct {
+					ID string `json:"id"`
+				} `json:"pullRequest"`
+			} `json:"repository"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(out, &resp); err != nil {
+		return "", fmt.Errorf("parse node ID: %w", err)
+	}
+	if resp.Data.Repository.PullRequest.ID == "" {
+		return "", fmt.Errorf("PR #%d not found in %s", number, repo)
+	}
+	return resp.Data.Repository.PullRequest.ID, nil
+}
+
+func mergeMethod(strategy string) string {
+	switch strategy {
+	case "squash":
+		return "SQUASH"
+	case "rebase":
+		return "REBASE"
+	default:
+		return "MERGE"
+	}
+}
+
+func ownerQualifiers(ctx context.Context, owners []string) string {
+	if len(owners) == 0 {
+		return ""
+	}
+	var sb strings.Builder
+	sb.WriteString("{")
+	for i, owner := range owners {
+		fmt.Fprintf(&sb, " owner%d: repositoryOwner(login: %q) { __typename }", i, owner)
+	}
+	sb.WriteString(" }")
+	out, err := ghGraphQL(ctx, sb.String())
+	if err != nil {
+		var result strings.Builder
+		for _, o := range owners {
+			result.WriteString(" user:" + o)
+		}
+		return result.String()
+	}
+	var resp struct {
+		Data map[string]struct {
+			TypeName string `json:"__typename"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(out, &resp); err != nil {
+		var result strings.Builder
+		for _, o := range owners {
+			result.WriteString(" user:" + o)
+		}
+		return result.String()
+	}
+	var result strings.Builder
+	for i, owner := range owners {
+		key := fmt.Sprintf("owner%d", i)
+		if node, ok := resp.Data[key]; ok && node.TypeName == "Organization" {
+			result.WriteString(" org:" + owner)
+		} else {
+			result.WriteString(" user:" + owner)
+		}
+	}
+	return result.String()
+}
+
+func searchPRsGraphQL(ctx context.Context, searchQuery string) ([]PR, error) {
+	query := fmt.Sprintf(`{
+  search(query: %q, type: ISSUE, first: 100) {
+    nodes {
+      ... on PullRequest {
+        number
+        title
+        author { login }
+        state
+        isDraft
+        createdAt
+        url
+        repository { name nameWithOwner }
+      }
+    }
+  }
+}`, searchQuery)
+
+	out, err := ghGraphQL(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+
+	var resp struct {
+		Data struct {
+			Search struct {
+				Nodes []struct {
+					Number int    `json:"number"`
+					Title  string `json:"title"`
+					Author struct {
+						Login string `json:"login"`
+					} `json:"author"`
+					State      string `json:"state"`
+					IsDraft    bool   `json:"isDraft"`
+					CreatedAt  string `json:"createdAt"`
+					URL        string `json:"url"`
+					Repository struct {
+						Name          string `json:"name"`
+						NameWithOwner string `json:"nameWithOwner"`
+					} `json:"repository"`
+				} `json:"nodes"`
+			} `json:"search"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(out, &resp); err != nil {
+		return nil, fmt.Errorf("parse search results: %w", err)
+	}
+
+	prs := make([]PR, 0, len(resp.Data.Search.Nodes))
+	for _, n := range resp.Data.Search.Nodes {
+		if n.Number == 0 {
+			continue
+		}
+		prs = append(prs, PR{
+			Number:     n.Number,
+			Title:      n.Title,
+			Author:     Author{Login: n.Author.Login},
+			State:      n.State,
+			IsDraft:    n.IsDraft,
+			CreatedAt:  n.CreatedAt,
+			URL:        n.URL,
+			Repository: Repository{Name: n.Repository.Name, NameWithOwner: n.Repository.NameWithOwner},
+		})
+	}
+	return prs, nil
+}
+
 func FetchPRs(mode PRMode, owners []string) tea.Cmd {
 	return func() tea.Msg {
 		if mode == ModeReviewRequested {
 			return fetchReviewPRs(owners)
 		}
 
-		args := []string{
-			"search", "prs",
-			"--state", "open",
-			"--json", "number,title,author,state,isDraft,createdAt,url,repository",
-			"--limit", "100",
-			"--author", "@me",
-		}
-		for _, o := range owners {
-			args = append(args, "--owner", o)
-		}
 		ctx, cancel := context.WithTimeout(context.Background(), timeoutFetch)
 		defer cancel()
-		out, err := exec.CommandContext(ctx, "gh", args...).CombinedOutput()
+
+		searchQuery := "is:pr is:open author:@me" + ownerQualifiers(ctx, owners)
+		prs, err := searchPRsGraphQL(ctx, searchQuery)
 		if err != nil {
-			return ErrMsg{fmt.Errorf("gh search prs: %w\n%s", err, strings.TrimSpace(string(out)))}
-		}
-		var prs []PR
-		if err := json.Unmarshal(out, &prs); err != nil {
-			return ErrMsg{fmt.Errorf("parse pr list: %w", err)}
+			return ErrMsg{err}
 		}
 		return PRsMsg(prs)
 	}
 }
 
 func fetchReviewPRs(owners []string) tea.Msg {
-	const prJSON = "number,title,author,state,isDraft,createdAt,url,repository"
-
 	type result struct {
 		prs []PR
 		err error
@@ -202,32 +349,15 @@ func fetchReviewPRs(owners []string) tea.Msg {
 	ctx, cancel := context.WithTimeout(context.Background(), timeoutFetch)
 	defer cancel()
 
-	fetch := func(ch chan<- result, filter, value string) {
-		args := []string{
-			"search", "prs",
-			"--state", "open",
-			"--json", prJSON,
-			"--limit", "100",
-			filter, value,
-		}
-		for _, o := range owners {
-			args = append(args, "--owner", o)
-		}
-		out, err := exec.CommandContext(ctx, "gh", args...).CombinedOutput()
-		if err != nil {
-			ch <- result{err: fmt.Errorf("gh search prs: %w\n%s", err, strings.TrimSpace(string(out)))}
-			return
-		}
-		var prs []PR
-		if err := json.Unmarshal(out, &prs); err != nil {
-			ch <- result{err: fmt.Errorf("parse pr list: %w", err)}
-			return
-		}
-		ch <- result{prs: prs}
+	qualifiers := ownerQualifiers(ctx, owners)
+
+	fetch := func(ch chan<- result, filter string) {
+		prs, err := searchPRsGraphQL(ctx, "is:pr is:open "+filter+qualifiers)
+		ch <- result{prs: prs, err: err}
 	}
 
-	go fetch(requestedCh, "--review-requested", "@me")
-	go fetch(reviewedCh, "--reviewed-by", "@me")
+	go fetch(requestedCh, "review-requested:@me")
+	go fetch(reviewedCh, "reviewed-by:@me")
 
 	requested := <-requestedCh
 	reviewed := <-reviewedCh
@@ -280,9 +410,9 @@ func filterByWriteAccess(prs []PR) ([]PR, error) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), timeoutFetch)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, "gh", "api", "graphql", "-f", "query="+sb.String()).CombinedOutput()
+	out, err := ghGraphQL(ctx, sb.String())
 	if err != nil {
-		return nil, fmt.Errorf("gh api graphql (write access): %w\n%s", err, strings.TrimSpace(string(out)))
+		return nil, err
 	}
 
 	var response struct {
@@ -319,20 +449,130 @@ func filterByWriteAccess(prs []PR) ([]PR, error) {
 
 func FetchPRDetail(number int, repo string) tea.Cmd {
 	return func() tea.Msg {
+		parts := strings.SplitN(repo, "/", 2)
+		if len(parts) != 2 {
+			return PRDetailMsg{Err: fmt.Errorf("invalid repo: %s", repo)}
+		}
+		query := fmt.Sprintf(`{
+  repository(owner: %q, name: %q) {
+    pullRequest(number: %d) {
+      number
+      body
+      additions
+      deletions
+      changedFiles
+      commits(last: 1) {
+        nodes {
+          commit {
+            statusCheckRollup {
+              contexts(first: 100) {
+                nodes {
+                  __typename
+                  ... on CheckRun { name status conclusion }
+                  ... on StatusContext { context state }
+                }
+              }
+            }
+          }
+        }
+      }
+      latestReviews(first: 100) {
+        nodes {
+          author { login }
+          state
+        }
+      }
+    }
+  }
+}`, parts[0], parts[1], number)
+
 		ctx, cancel := context.WithTimeout(context.Background(), timeoutFetch)
 		defer cancel()
-		out, err := exec.CommandContext(ctx, "gh", "pr", "view",
-			fmt.Sprintf("%d", number),
-			"--repo", repo,
-			"--json", "number,body,statusCheckRollup,latestReviews,additions,deletions,changedFiles",
-		).CombinedOutput()
+		out, err := ghGraphQL(ctx, query)
 		if err != nil {
-			return PRDetailMsg{Err: fmt.Errorf("gh pr view: %w\n%s", err, strings.TrimSpace(string(out)))}
+			return PRDetailMsg{Err: err}
 		}
-		var detail PRDetail
-		if err := json.Unmarshal(out, &detail); err != nil {
+
+		var resp struct {
+			Data struct {
+				Repository struct {
+					PullRequest *struct {
+						Number       int    `json:"number"`
+						Body         string `json:"body"`
+						Additions    int    `json:"additions"`
+						Deletions    int    `json:"deletions"`
+						ChangedFiles int    `json:"changedFiles"`
+						Commits      struct {
+							Nodes []struct {
+								Commit struct {
+									StatusCheckRollup *struct {
+										Contexts struct {
+											Nodes []struct {
+												TypeName   string `json:"__typename"`
+												Name       string `json:"name"`
+												Status     string `json:"status"`
+												Conclusion string `json:"conclusion"`
+												Context    string `json:"context"`
+												State      string `json:"state"`
+											} `json:"nodes"`
+										} `json:"contexts"`
+									} `json:"statusCheckRollup"`
+								} `json:"commit"`
+							} `json:"nodes"`
+						} `json:"commits"`
+						LatestReviews struct {
+							Nodes []struct {
+								Author struct {
+									Login string `json:"login"`
+								} `json:"author"`
+								State string `json:"state"`
+							} `json:"nodes"`
+						} `json:"latestReviews"`
+					} `json:"pullRequest"`
+				} `json:"repository"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(out, &resp); err != nil {
 			return PRDetailMsg{Err: fmt.Errorf("parse pr detail: %w", err)}
 		}
+
+		p := resp.Data.Repository.PullRequest
+		if p == nil {
+			return PRDetailMsg{Err: fmt.Errorf("PR #%d not found in %s", number, repo)}
+		}
+
+		detail := PRDetail{
+			Number:       p.Number,
+			Body:         p.Body,
+			Additions:    p.Additions,
+			Deletions:    p.Deletions,
+			ChangedFiles: p.ChangedFiles,
+		}
+
+		if len(p.Commits.Nodes) > 0 {
+			if rollup := p.Commits.Nodes[0].Commit.StatusCheckRollup; rollup != nil {
+				for _, c := range rollup.Contexts.Nodes {
+					detail.StatusCheckRollup = append(detail.StatusCheckRollup, CheckEntry{
+						TypeName:   c.TypeName,
+						Name:       c.Name,
+						Status:     c.Status,
+						Conclusion: c.Conclusion,
+						Context:    c.Context,
+						State:      c.State,
+					})
+				}
+			}
+		}
+
+		for _, r := range p.LatestReviews.Nodes {
+			detail.LatestReviews = append(detail.LatestReviews, Review{
+				Author: struct {
+					Login string `json:"login"`
+				}{Login: r.Author.Login},
+				State: r.State,
+			})
+		}
+
 		return PRDetailMsg{PR: detail}
 	}
 }
@@ -341,13 +581,17 @@ func ApprovePR(number int, repo string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), timeoutAction)
 		defer cancel()
-		out, err := exec.CommandContext(ctx, "gh", "pr", "review",
-			fmt.Sprintf("%d", number),
-			"--repo", repo,
-			"--approve",
-		).CombinedOutput()
+		nodeID, err := prNodeID(ctx, number, repo)
 		if err != nil {
-			return ApproveMsg{Num: number, Repo: repo, Err: fmt.Errorf("gh pr review: %w\n%s", err, strings.TrimSpace(string(out)))}
+			return ApproveMsg{Num: number, Repo: repo, Err: err}
+		}
+		mutation := fmt.Sprintf(`mutation {
+  addPullRequestReview(input: {pullRequestId: %q, event: APPROVE}) {
+    clientMutationId
+  }
+}`, nodeID)
+		if _, err := ghGraphQL(ctx, mutation); err != nil {
+			return ApproveMsg{Num: number, Repo: repo, Err: err}
 		}
 		return ApproveMsg{Num: number, Repo: repo}
 	}
@@ -357,13 +601,17 @@ func MergePR(number int, repo string, strategy string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), timeoutAction)
 		defer cancel()
-		out, err := exec.CommandContext(ctx, "gh", "pr", "merge",
-			fmt.Sprintf("%d", number),
-			"--repo", repo,
-			"--"+strategy,
-		).CombinedOutput()
+		nodeID, err := prNodeID(ctx, number, repo)
 		if err != nil {
-			return MergeMsg{Num: number, Repo: repo, Err: fmt.Errorf("gh pr merge: %w\n%s", err, strings.TrimSpace(string(out)))}
+			return MergeMsg{Num: number, Repo: repo, Err: err}
+		}
+		mutation := fmt.Sprintf(`mutation {
+  mergePullRequest(input: {pullRequestId: %q, mergeMethod: %s}) {
+    clientMutationId
+  }
+}`, nodeID, mergeMethod(strategy))
+		if _, err := ghGraphQL(ctx, mutation); err != nil {
+			return MergeMsg{Num: number, Repo: repo, Err: err}
 		}
 		return MergeMsg{Num: number, Repo: repo}
 	}
@@ -373,24 +621,25 @@ func AutoMergePR(number int, repo string, strategy string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), timeoutAction)
 		defer cancel()
-		num := fmt.Sprintf("%d", number)
-		out, err := exec.CommandContext(ctx, "gh", "pr", "merge",
-			num,
-			"--repo", repo,
-			"--"+strategy,
-			"--auto",
-		).CombinedOutput()
+		nodeID, err := prNodeID(ctx, number, repo)
 		if err != nil {
-			out2, err2 := exec.CommandContext(ctx, "gh", "pr", "merge",
-				num,
-				"--repo", repo,
-				"--"+strategy,
-			).CombinedOutput()
-			if err2 != nil {
-				return AutoMergeMsg{Num: number, Repo: repo, Err: fmt.Errorf("gh pr merge --auto: %w\n%s", err, strings.TrimSpace(string(out)))}
+			return AutoMergeMsg{Num: number, Repo: repo, Err: err}
+		}
+		method := mergeMethod(strategy)
+		mutation := fmt.Sprintf(`mutation {
+  enablePullRequestAutoMerge(input: {pullRequestId: %q, mergeMethod: %s}) {
+    clientMutationId
+  }
+}`, nodeID, method)
+		if _, err := ghGraphQL(ctx, mutation); err != nil {
+			fallback := fmt.Sprintf(`mutation {
+  mergePullRequest(input: {pullRequestId: %q, mergeMethod: %s}) {
+    clientMutationId
+  }
+}`, nodeID, method)
+			if _, err2 := ghGraphQL(ctx, fallback); err2 != nil {
+				return AutoMergeMsg{Num: number, Repo: repo, Err: err}
 			}
-			_ = out2
-			return AutoMergeMsg{Num: number, Repo: repo}
 		}
 		return AutoMergeMsg{Num: number, Repo: repo}
 	}
@@ -400,12 +649,17 @@ func ClosePR(number int, repo string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), timeoutAction)
 		defer cancel()
-		out, err := exec.CommandContext(ctx, "gh", "pr", "close",
-			fmt.Sprintf("%d", number),
-			"--repo", repo,
-		).CombinedOutput()
+		nodeID, err := prNodeID(ctx, number, repo)
 		if err != nil {
-			return CloseMsg{Num: number, Repo: repo, Err: fmt.Errorf("gh pr close: %w\n%s", err, strings.TrimSpace(string(out)))}
+			return CloseMsg{Num: number, Repo: repo, Err: err}
+		}
+		mutation := fmt.Sprintf(`mutation {
+  closePullRequest(input: {pullRequestId: %q}) {
+    clientMutationId
+  }
+}`, nodeID)
+		if _, err := ghGraphQL(ctx, mutation); err != nil {
+			return CloseMsg{Num: number, Repo: repo, Err: err}
 		}
 		return CloseMsg{Num: number, Repo: repo}
 	}
@@ -457,9 +711,9 @@ func fetchPRStatus(pr PR) tea.Cmd {
 
 		ctx, cancel := context.WithTimeout(context.Background(), timeoutFetch)
 		defer cancel()
-		out, err := exec.CommandContext(ctx, "gh", "api", "graphql", "-f", "query="+query).Output()
+		out, err := ghGraphQL(ctx, query)
 		if err != nil {
-			return PRStatusesMsg{Err: fmt.Errorf("gh api graphql (#%d): %w", pr.Number, err)}
+			return PRStatusesMsg{Err: fmt.Errorf("graphql (#%d): %w", pr.Number, err)}
 		}
 
 		var resp struct {
@@ -543,12 +797,17 @@ func UpdateBranch(number int, repo string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), timeoutAction)
 		defer cancel()
-		out, err := exec.CommandContext(ctx, "gh", "pr", "update-branch",
-			fmt.Sprintf("%d", number),
-			"--repo", repo,
-		).CombinedOutput()
+		nodeID, err := prNodeID(ctx, number, repo)
 		if err != nil {
-			return UpdateBranchMsg{Num: number, Repo: repo, Err: fmt.Errorf("gh pr update-branch: %w\n%s", err, strings.TrimSpace(string(out)))}
+			return UpdateBranchMsg{Num: number, Repo: repo, Err: err}
+		}
+		mutation := fmt.Sprintf(`mutation {
+  updatePullRequestBranch(input: {pullRequestId: %q}) {
+    pullRequest { id }
+  }
+}`, nodeID)
+		if _, err := ghGraphQL(ctx, mutation); err != nil {
+			return UpdateBranchMsg{Num: number, Repo: repo, Err: err}
 		}
 		return UpdateBranchMsg{Num: number, Repo: repo}
 	}
@@ -559,14 +818,30 @@ func RerunChecks(number int, repo string) tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), timeoutAction)
 		defer cancel()
 
-		shaOut, err := exec.CommandContext(ctx, "gh", "api",
-			fmt.Sprintf("repos/%s/pulls/%d", repo, number),
-			"--jq", ".head.sha",
-		).Output()
+		parts := strings.SplitN(repo, "/", 2)
+		if len(parts) != 2 {
+			return RerunChecksMsg{Num: number, Repo: repo, Err: fmt.Errorf("invalid repo: %s", repo)}
+		}
+
+		query := fmt.Sprintf(`{ repository(owner: %q, name: %q) { pullRequest(number: %d) { headRefOid } } }`,
+			parts[0], parts[1], number)
+		out, err := ghGraphQL(ctx, query)
 		if err != nil {
 			return RerunChecksMsg{Num: number, Repo: repo, Err: fmt.Errorf("get PR head SHA: %w", err)}
 		}
-		sha := strings.TrimSpace(string(shaOut))
+		var shaResp struct {
+			Data struct {
+				Repository struct {
+					PullRequest struct {
+						HeadRefOid string `json:"headRefOid"`
+					} `json:"pullRequest"`
+				} `json:"repository"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(out, &shaResp); err != nil {
+			return RerunChecksMsg{Num: number, Repo: repo, Err: fmt.Errorf("parse head SHA: %w", err)}
+		}
+		sha := shaResp.Data.Repository.PullRequest.HeadRefOid
 
 		runsOut, err := exec.CommandContext(ctx, "gh", "api",
 			fmt.Sprintf("repos/%s/actions/runs?head_sha=%s&per_page=20", repo, sha),
@@ -582,7 +857,9 @@ func RerunChecks(number int, repo string) tea.Cmd {
 		}
 
 		for _, runID := range runIDs {
-			out, err := exec.CommandContext(ctx, "gh", "run", "rerun", runID, "--failed", "--repo", repo).CombinedOutput()
+			out, err := exec.CommandContext(ctx, "gh", "api", "-X", "POST",
+				fmt.Sprintf("repos/%s/actions/runs/%s/rerun-failed-jobs", repo, runID),
+			).CombinedOutput()
 			if err != nil {
 				return RerunChecksMsg{Num: number, Repo: repo, Err: fmt.Errorf("rerun %s: %w\n%s", runID, err, strings.TrimSpace(string(out)))}
 			}
