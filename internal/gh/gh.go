@@ -421,11 +421,21 @@ func OpenBrowser(number int, repo string) tea.Cmd {
 }
 
 func FetchAllPRStatuses(prs []PR) tea.Cmd {
+	const maxParallel = 20
 	cmds := make([]tea.Cmd, len(prs))
+	sem := make(chan struct{}, maxParallel)
 	for i, pr := range prs {
-		cmds[i] = fetchPRStatus(pr)
+		cmds[i] = fetchPRStatusWithSem(pr, sem)
 	}
 	return tea.Batch(cmds...)
+}
+
+func fetchPRStatusWithSem(pr PR, sem chan struct{}) tea.Cmd {
+	return func() tea.Msg {
+		sem <- struct{}{}
+		defer func() { <-sem }()
+		return fetchPRStatus(pr)()
+	}
 }
 
 func fetchPRStatus(pr PR) tea.Cmd {
