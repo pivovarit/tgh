@@ -279,9 +279,9 @@ func searchPRsGraphQL(ctx context.Context, searchQuery string) ([]PR, error) {
 		Data struct {
 			Search struct {
 				Nodes []struct {
-					Number     int    `json:"number"`
-					Title      string `json:"title"`
-					Author     struct {
+					Number int    `json:"number"`
+					Title  string `json:"title"`
+					Author struct {
 						Login string `json:"login"`
 					} `json:"author"`
 					State      string `json:"state"`
